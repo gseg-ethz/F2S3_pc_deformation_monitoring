@@ -54,7 +54,6 @@ git clone git@github.com:zgojcic/F2S3_pc_deformaton_monitoring.git ./F2S3
 git clone https://github.com/zgojcic/F2S3_pc_deformaton_monitoring.git ./F2S3
 
 cd F2S3
-git checkout development
 ```
 
 ## Virtual environment
