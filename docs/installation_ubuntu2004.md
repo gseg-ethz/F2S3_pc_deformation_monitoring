@@ -104,9 +104,9 @@ pip install -r requirements.txt
 
 C++ tools are located in `./cpp_core/' and their python wrappers can be compiled as follows:
 
-### pc_tiling
 Before building the `pc_tiling` & `supervoxel_segmentation` modules, you need to adapt the `CMakeLists.txt` (line 21 for pc_tiling  & line 20 for supervoxel_segmentation) to use the correct version of the boost library for python.
 
+### pc_tiling
 
 ```shell
 cd /path/to/project_parent_folder/F2S3/cpp_core/pc_tiling
