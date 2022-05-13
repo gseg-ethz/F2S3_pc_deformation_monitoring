@@ -2,7 +2,6 @@ cmake_minimum_required(VERSION 2.8)
 
 project(supervoxel)
 
-
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -std=c++14 -Wall -pedantic -Wextra -Wno-unused-parameter -fPIC")
 
 # Add liba
@@ -18,7 +17,7 @@ find_package(PythonLibs REQUIRED)
 
 if(${PYTHON_VERSION_STRING} GREATER 3.0)
   message(STATUS "Using Python3")
-  set(Boost_LIBRARIES -lboost_python3)
+  set(Boost_LIBRARIES -lboost_python310)
 else()
   message(STATUS "Using Python2")
   set(Boost_LIBRARIES -lboost_python -lboost_numpy)

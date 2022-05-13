@@ -5,6 +5,8 @@
 #include "codelibrary/geometry/util/distance_3d.h"
 #include "codelibrary/util/tree/kd_tree.h"
 #include <pcl/io/ply_io.h>
+#include <pcl/point_cloud.h>
+#include <pcl/point_types.h>
 //#include <pcl/impl/point_types.hpp>
 #include "supervoxel.h"
 
