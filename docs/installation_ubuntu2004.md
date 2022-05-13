@@ -72,7 +72,7 @@ source ./venv/bin/activate
 We would recommend checking the [PyTorch website](https://pytorch.org/get-started/locally/) for the current installation recommendations. F2S3 was both tested with CUDA version 10.X and 11.X. Check which version is installed by running `nvcc --version`.  
 
 ```shell
-pip3 install torch==1.10.2+cu113 torchvision==0.11.3+cu113 torchaudio===0.10.2+cu113 -f https://download.pytorch.org/whl/cu113/torch_stable.html
+pip3 install torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu113
 ```
 
 We would recommend checking if cuda and pytorch were installed successfully at this point:
@@ -105,12 +105,8 @@ pip install -r requirements.txt
 C++ tools are located in `./cpp_core/' and their python wrappers can be compiled as follows:
 
 ### pc_tiling
-We have had issues with `libboost_python3`. The current way to solve it is by adding symbolic links:
-```shell
-cd /usr/lib/x86_64-linux-gnu
-sudo ln -s libboost_python38.so libboost_python3.so
-sudo ln -s libboost_python38.a libboost_python3.a
-```
+Before building the `pc_tiling` & `supervoxel_segmentation` modules, you need to adapt the `CMakeLists.txt` (line 21 for pc_tiling  & line 20 for supervoxel_segmentation) to use the correct version of the boost library for python.
+
 
 ```shell
 cd /path/to/project_parent_folder/F2S3/cpp_core/pc_tiling
