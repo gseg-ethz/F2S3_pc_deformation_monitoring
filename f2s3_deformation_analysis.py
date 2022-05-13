@@ -83,6 +83,7 @@ class PointCloudTile():
         self.verbose = args.verbose
         self.save_interim = args.save_interim
         self.base_save_path = os.sep.join(self.path_s.split(os.sep)[:-2])
+        self.voxel_grid_size = args.voxel_grid_size
 
         # Compute median resolution of the point clouds
         self.median_resolution = self._compute_resolution()
@@ -102,7 +103,7 @@ class PointCloudTile():
 
 
 
-        supervoxel_radius = np.sqrt(3)*(10*self.median_resolution)
+        supervoxel_radius = np.max((np.sqrt(3)*(10*self.median_resolution), self.voxel_grid_size,))
 
         if self.verbose:
             logging.info('Starting the supervoxel ectraction.')
@@ -161,8 +162,8 @@ class PointCloudTile():
 
         # Prepare source and target data loader. 
         # If running into the GPU memory problems reduce the number of points in a batch (default is 2000).
-        dataset_s = FeatureExtractionDataset(self.pcd_s, self.pcd_s_overlap, 2000, np.sqrt(3)*(10*self.median_resolution))
-        dataset_t = FeatureExtractionDataset(self.pcd_t, self.pcd_t_overlap, 2000, np.sqrt(3)*(10*self.median_resolution))
+        dataset_s = FeatureExtractionDataset(self.pcd_s, self.pcd_s_overlap, 1500, np.sqrt(3)*(10*self.median_resolution))
+        dataset_t = FeatureExtractionDataset(self.pcd_t, self.pcd_t_overlap, 1500, np.sqrt(3)*(10*self.median_resolution))
 
         dataloader_s = torch.utils.data.DataLoader(dataset_s, batch_size=1, shuffle=False, num_workers=6, drop_last=False)
         dataloader_t = torch.utils.data.DataLoader(dataset_t, batch_size=1, shuffle=False, num_workers=6, drop_last=False)
