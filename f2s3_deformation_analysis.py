@@ -157,13 +157,15 @@ class PointCloudTile():
         [3] Poiesi, F., & Boscaini, D.: Distinctive 3D local deep descriptors. International Conference on Pattern Recognition (ICPR), 2020.
         """
 
+        neighborhood_radius = np.sqrt(3)*(10*self.median_resolution)
+        
         if self.verbose:
-            logging.info('Starting the computation of local feature descriptors.')
+            logging.info(f"Starting the computation of local feature descriptors. Neighborhood radius: {neighborhood_radius:.3f}")
 
         # Prepare source and target data loader. 
         # If running into the GPU memory problems reduce the number of points in a batch (default is 2000).
-        dataset_s = FeatureExtractionDataset(self.pcd_s, self.pcd_s_overlap, 1000, np.sqrt(3)*(10*self.median_resolution))
-        dataset_t = FeatureExtractionDataset(self.pcd_t, self.pcd_t_overlap, 1000, np.sqrt(3)*(10*self.median_resolution))
+        dataset_s = FeatureExtractionDataset(self.pcd_s, self.pcd_s_overlap, 1000, neighborhood_radius)
+        dataset_t = FeatureExtractionDataset(self.pcd_t, self.pcd_t_overlap, 1000, neighborhood_radius)
 
         dataloader_s = torch.utils.data.DataLoader(dataset_s, batch_size=1, shuffle=False, num_workers=6, drop_last=False)
         dataloader_t = torch.utils.data.DataLoader(dataset_t, batch_size=1, shuffle=False, num_workers=6, drop_last=False)
@@ -307,22 +309,18 @@ class PointCloudTile():
 
             else:
                 idx = (filtering_output['scores'].reshape(-1) > 0.99999).cpu().numpy()
-
+            
             inlier_idx.append(idx)
             save_coords.append(supervoxel_data)
 
         torch.cuda.empty_cache()
         gc.collect()
 
-        inlier_idx = np.array(inlier_idx)
-        # Remove after testing
-        logging.info('Shape of `inlier_idx`: {}'.format(inlier_idx.shape))
+        if inlier_idx:
+            inlier_idx = np.concatenate(inlier_idx,axis=0)
+            inlier_idx = np.where(inlier_idx > 0.5)[0].reshape(-1)
 
-
-        inlier_idx = np.concatenate(inlier_idx,axis=0)
-        inlier_idx = np.where(inlier_idx > 0.5)[0].reshape(-1)
-
-        save_coords = np.concatenate(save_coords,axis=0)
+            save_coords = np.concatenate(save_coords,axis=0)
 
 
         # Filter the outliers based on the predicted scores
@@ -504,7 +502,7 @@ def feature_based_deformation_analysis(args):
 
     for idx, tile_s in enumerate(tile_list):
         logging.info('----------------------------------------------------------------------')
-        logging.info('Processing tile {}/{}'.format(idx,len(tile_list)))
+        logging.info('Processing tile {}/{}'.format(idx+1,len(tile_list)))
 
         tile_nr = tile_s.split(os.sep)[-1].split('_')[-1].split('.')[0]
 
