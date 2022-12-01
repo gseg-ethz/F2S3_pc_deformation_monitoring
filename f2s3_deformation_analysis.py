@@ -162,8 +162,8 @@ class PointCloudTile():
 
         # Prepare source and target data loader. 
         # If running into the GPU memory problems reduce the number of points in a batch (default is 2000).
-        dataset_s = FeatureExtractionDataset(self.pcd_s, self.pcd_s_overlap, 1500, np.sqrt(3)*(10*self.median_resolution))
-        dataset_t = FeatureExtractionDataset(self.pcd_t, self.pcd_t_overlap, 1500, np.sqrt(3)*(10*self.median_resolution))
+        dataset_s = FeatureExtractionDataset(self.pcd_s, self.pcd_s_overlap, 1000, np.sqrt(3)*(10*self.median_resolution))
+        dataset_t = FeatureExtractionDataset(self.pcd_t, self.pcd_t_overlap, 1000, np.sqrt(3)*(10*self.median_resolution))
 
         dataloader_s = torch.utils.data.DataLoader(dataset_s, batch_size=1, shuffle=False, num_workers=6, drop_last=False)
         dataloader_t = torch.utils.data.DataLoader(dataset_t, batch_size=1, shuffle=False, num_workers=6, drop_last=False)
@@ -487,7 +487,7 @@ def feature_based_deformation_analysis(args):
                                 args.target_cloud, 
                                 args.max_points_per_tile,
                                 10000,
-                                False,
+                                bool(args.voxel_grid_size),
                                 args.voxel_grid_size,
                                 0.0,
                                 -1,
@@ -542,11 +542,11 @@ if __name__ == '__main__':
     parser.add_argument(
             '--target_cloud', default='piz_cengalo/Cengalo2016_10cm.ply', type=str, help='path to the source point cloud')
     parser.add_argument(
-            '--voxel_grid_size', default=0.1, type=float, help='size of the voxel grid used for making the point density more uniform')
+            '--voxel_grid_size', default=0.0, type=float, help='Target spacing for for voxel grid filter. Used to make the point density more uniform (No Filter if 0)')
     parser.add_argument(
             '--max_points_per_tile', default=1000000, type=int, help='Maximum number of points per each tile. Should be decreasead if the program runs OOM.')
     parser.add_argument(
-            '--max_disp_magnitude', default=10.0, type=float, help='Maximum displacement magnitude, all points with higher magnitude will be filtered out (no filtering if 0)')
+            '--max_disp_magnitude', default=0, type=float, help='Maximum displacement magnitude, all points with higher magnitude will be filtered out (no filtering if 0)')
     parser.add_argument(
             '--save_interim', action='store_true', help='Save interim results such as pointwise feature desriptors and supervoxels.')
     parser.add_argument(
