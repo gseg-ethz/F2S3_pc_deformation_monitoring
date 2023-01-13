@@ -49,9 +49,9 @@ sudo apt install git
 cd /path/to/project_parent_folder
 # Select one of the following lines depending on your mode of github access (if you don't know the difference then select HTTPS)
 # SSH
-git clone git@github.com:zgojcic/F2S3_pc_deformaton_monitoring.git ./F2S3
+git clone git@github.com:gseg-ethz/F2S3_pc_deformation_monitoring.git ./F2S3
 # HTTPS
-git clone https://github.com/zgojcic/F2S3_pc_deformaton_monitoring.git ./F2S3
+git clone https://github.com/gseg-ethz/F2S3_pc_deformation_monitoring.git ./F2S3
 
 cd F2S3
 ```
