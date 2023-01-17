@@ -77,11 +77,9 @@ pip3 install torch torchvision torchaudio --extra-index-url https://download.pyt
 
 We would recommend checking if cuda and pytorch were installed successfully at this point:
 ```shell
-python
-import torch
-torch.cuda.is_available()
-exit()
+python -c "import torch; print(torch.cuda.is_available())"
 ```
+
 The code snippet should return `true`. If not, check the environment variables with `echo "$PATH"` and `echo "LD_LIBRARY_PATH"`.
 
 ## Install additional requirements
@@ -123,10 +121,7 @@ After the generation pc_tiling can be imported into python with `import pc_tilin
 ### supervoxel_segmentation
 Before continuing to the next step, the location of the `numpy` header files needs to be identified:
 ```shell
-python
-import numpy
-numpy.get_include()
-exit()
+python -c "import numpy; print(numpy.get_include())"
 ```
 
 Replace the include directory in the following code block: 
