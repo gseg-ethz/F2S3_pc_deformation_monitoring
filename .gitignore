@@ -14,7 +14,9 @@ pcl-trunk/
 data/*
 !data/_sample_folder
 
-lib/__pycache__/
+_old/*
+
+**/__pycache__/
 
 
 ## https://github.com/github/gitignore/blob/main/Python.gitignore
