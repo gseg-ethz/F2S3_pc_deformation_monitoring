@@ -1,0 +1,71 @@
+[build-system]
+requires = ["setuptools>=64", "setuptools_scm>=8", "wheel", "cmake", "swig"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "f2s3"
+version = "0.1.0"
+authors = [
+    {name = "Zan Gojcic"},
+    {name = "Nicholas Meyer", email = "meyernic@ethz.ch"},
+]
+maintainers = [
+    {name = "Nicholas Meyer", email = "meyernic@ethz.ch"},
+]
+description = "Description of ModuleA"
+readme = {file = "README.md", content-type = "text/markdown"}
+requires-python = ">=3.11"
+keywords = ["ONE", "TWO"]
+license = {text = "Proprietary"} # To be changed once released
+classifiers = [ # https://packaging.python.org/en/latest/guides/writing-pyproject-toml/#classifiers
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+
+    "Private :: Do Not Upload" # REMOVE BEFORE FLIGHT -- PyPI will always reject packages with classifiers beginning with Private ::
+]
+
+dependencies = [
+    "torch",
+    "open3d ~=0.15",
+    "numpy",
+    "glob2",
+    "pybind11",
+    "tqdm",
+    "coloredlogs",
+    "hnswlib",
+    "scikit-learn",
+    "pc_tiling", # @ https://example.net/archives/package-b.whl
+    "supervoxel",
+]
+
+[tool.setuptools]
+packages = ["f2s3"]
+
+[tool.setuptools.package-dir]
+f2s3 = "src/f2s3"
+
+[tool.setuptools.package-data]
+f2s3 = [
+    "pretrained_models/feature_descriptor/model_best.pth",
+    "pretrained_models/outlier_filtering/model_best.pt",
+
+]
+
+[project.urls]
+Homepage = "https://example.com"
+Documentation = "https://readthedocs.org"
+Repository = "https://github.com/me/spam.git"
+Issues = "https://github.com/me/spam/issues"
+Changelog = "https://github.com/me/spam/blob/master/CHANGELOG.md"
+
+#[project.optional-dependencies]
+#doc = ["sphinx"]
+#dev = [
+#    "black",  # Code formatter to make it consistant with PEP rules
+#    "flake8", # Code linter: Analyzes source code for errors, vulnerabilities, and stylistic issues
+#]
+#
+#[project.scripts]
+#moduleA-cli = "ModuleA.cli:main_cli"

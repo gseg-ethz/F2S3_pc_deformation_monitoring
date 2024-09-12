@@ -1,7 +1,0 @@
-glob2
-pybind11
-tqdm
-#logging
-coloredlogs
-hnswlib
-scikit-learn

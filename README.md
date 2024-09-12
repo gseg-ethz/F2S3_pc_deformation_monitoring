@@ -11,7 +11,7 @@ This repository contains the source code and instructions of F2S3, an approach f
 
 Feature to Feature Supervoxel-based Spatial Smoothing (F2S3) is a deep learning based deformation analysis method for point cloud data. It computes a displacements vector field between two epochs, based on the establishing the corresponding points in the feature space. The initial noisy set of putative correspondences is filtered using an outlier detection network, which operates inside individual supervoxels and hence satisfies the local consistency constraint without crossing the discontinuities of the vector field. F2S3 achieves a very high performance in the point clouds with sufficient local structure and thus represents a complementary method to the traditional deformation analysis tools such as C2C, M2C, and M3C2.
 
-![F2S3 pipeline](assets/F2S3_pipeline.PNG?raw=true)
+![F2S3 pipeline](docs/assets/F2S3_pipeline.PNG?raw=true)
 
 ## Before getting started
 
