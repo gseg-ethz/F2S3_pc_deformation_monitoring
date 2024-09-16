@@ -17,9 +17,9 @@ Author: Zan Gojcic
 """
 
 import os
+from importlib import resources
 import glob
 import numpy as np
-import argparse
 import logging
 import coloredlogs
 import open3d as o3d
@@ -29,40 +29,92 @@ import hnswlib
 import gc
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Optional
+import re
 
 from plotly.graph_objs.icicle import Pathbar
 from tqdm import tqdm
 from sklearn.neighbors import NearestNeighbors
 
-from src.f2s3.descriptor_model import PointNetFeature
-from src.f2s3.filtering_model import FilteringNetwork
-from src.f2s3.data import FeatureExtractionDataset
-from src.f2s3.utils import transform_point_cloud, compute_c2c
+from f2s3.descriptor_model import PointNetFeature
+from f2s3.filtering_model import FilteringNetwork
+from f2s3.data import FeatureExtractionDataset
+from f2s3.utils import transform_point_cloud, compute_c2c
 
 from pc_tiling import pc_tiling
 from supervoxel import supervoxel
 
 @dataclass
 class F2S3RunSettings:
-    source_cloud: Path
-    target_cloud: Path
+    results_dir: Path
+    source_cloud: Optional[Path] = None
+    target_cloud: Optional[Path] = None
+    start_from_tiled_data: bool = False
+    tiled_data: Optional[Path] = None
+    max_points_per_tile: int = 1000000
+    batch_size: int = 2000
+    voxel_grid_size: float = 0.0
+    max_disp_magnitude: float = 0.0
+    save_interim: bool = False
+    verbose: bool = False
+    filter_median_magnitude: bool = False
+    refine_results: bool = False
+    fill_gaps_c2c: bool = False
 
     def __post_init__(self):
+
+        # Check correct path settings for input data
+        if not self.start_from_tiled_data and (self.source_cloud is None or not self.source_cloud.is_file()):
+            raise FileNotFoundError(f"Source cloud could not be found at {self.source_cloud}!")
+        if not self.start_from_tiled_data and (self.target_cloud is None or not self.target_cloud.is_file()):
+            raise FileNotFoundError(f"Target cloud could not be found at {self.target_cloud}!")
+
+        if self.start_from_tiled_data and (self.tiled_data is None or not self.tiled_data.is_dir()):
+            raise NotADirectoryError(f"Tiled data path incorrect: {self.tiled_data}!")
+
+        # Check and set results path
+        if self.results_dir == "":
+            if self.start_from_tiled_data:
+                self.results_dir = self.tiled_data.parent
+            else:
+                self.results_dir = self.source_cloud.parent
+        else:
+            self.results_dir = Path(self.results_dir)
+
+        if not self.results_dir.exists():
+            self.results_dir.mkdir(parents=True)
+
+        # Set tiled data path in case not set (and not starting_from_tiled_data
+        if self.tiled_data is None:
+            self.tiled_data = self.results_dir / "tiled_data"
+
+        if not self.tiled_data.exists():
+            self.tiled_data.mkdir(parents=True)
+
+        # Check validity of run arguments
+        if self.max_points_per_tile < 1:
+            raise ValueError("Maximum number of point per tile needs to be a positive integer!")
+        if self.batch_size < 1:
+            raise ValueError("Batch size needs to be a positive integer!")
+        if self.voxel_grid_size < 0.0:
+            raise ValueError("Voxel grid size can't be negative!")
+        if self.max_disp_magnitude < 0.0:
+            raise ValueError("Maximum displacement magnitude can't be negative!")
+
+
         # Prepare the logger
         logger = logging.getLogger()
         coloredlogs.install(level='INFO', logger=logger)
         log_formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(name)s - %(message)s')
 
-        args_save_path = os.sep.join(self.source_cloud.split(os.sep)[:-2])
-        args_save_path = os.path.join(args_save_path, 'command_line_args.txt')
+        args_save_path = self.results_dir / 'command_line_args.txt'
 
         # Save arguments to the dictionary
         with open(args_save_path, 'w') as f:
             print(self, file=f)
 
-        # Ensure that the source and the target folders were provided
-        assert self.source_cloud is not None
-        assert self.target_cloud is not None
+    def __repr__(self):
+        return '\n'.join([f'{field}: {getattr(self, field)}' for field in self.__dataclass_fields__])
 
 
 class PointCloudTile:
@@ -70,14 +122,14 @@ class PointCloudTile:
     Base point cloud tile class. It implements all the functions needed for the robust estimation of the displacement vectors.
     """
 
-    def __init__(self, path_s, path_t, tile_nr, feature_extractor, filtering_network, args):
+    def __init__(self, path_s: Path, path_t: Path, tile_id: str, feature_extractor, filtering_network, args: F2S3RunSettings):
         """
         Class constructor:
 
         Args:
             path_s (str): path to the source point cloud
             path_t (str): path to the target point cloud
-            tile_nr (str): number of the current point cloud tile
+            tile_id (str): number of the current point cloud tile
             feature_extractor (pytorch model): feature extractor model with loaded pretrained weights
             filtering_network (pytorch model): outlier filtering model with loaded pretrained weights
             args (dict): selected command line arguments
@@ -87,16 +139,23 @@ class PointCloudTile:
         # Initialize the class settings and variables
         self.path_s = path_s
         self.path_t = path_t
-        self.tile_nr = tile_nr
+        self.tile_id = tile_id
 
-        self.pcd_s = o3d.io.read_point_cloud(self.path_s)
-        self.pcd_t = o3d.io.read_point_cloud(self.path_t)
+        self.pcd_s = o3d.io.read_point_cloud(str(self.path_s))
+        self.pcd_t = o3d.io.read_point_cloud(str(self.path_t))
 
-        overlap_path = os.sep.join(self.path_s.split(os.sep)[:-1])
-        self.pcd_s_overlap = o3d.io.read_point_cloud(
-            os.path.join(overlap_path, "overlap/source_tile_{}_overlap.ply".format(self.tile_nr)))
-        self.pcd_t_overlap = o3d.io.read_point_cloud(
-            os.path.join(overlap_path, "overlap/target_tile_{}_overlap.ply".format(self.tile_nr)))
+        self.pcd_s_overlap = o3d.io.read_point_cloud(str(
+            self.path_s.parent / "overlap" / (self.path_s.stem + "_overlap.ply")
+        ))
+        self.pcd_t_overlap = o3d.io.read_point_cloud(str(
+            self.path_t.parent / "overlap" / (self.path_t.stem + "_overlap.ply")
+        ))
+
+        # overlap_path = os.sep.join(self.path_s.split(os.sep)[:-1])
+        # self.pcd_s_overlap = o3d.io.read_point_cloud(
+        #     os.path.join(overlap_path, "overlap/source_tile_{}_overlap.ply".format(self.tile_id)))
+        # self.pcd_t_overlap = o3d.io.read_point_cloud(
+        #     os.path.join(overlap_path, "overlap/target_tile_{}_overlap.ply".format(self.tile_id)))
 
         self.feature_extractor = feature_extractor
         self.filtering_network = filtering_network
@@ -107,7 +166,7 @@ class PointCloudTile:
         self.fill_gaps_c2c = args.fill_gaps_c2c
         self.verbose = args.verbose
         self.save_interim = args.save_interim
-        self.base_save_path = os.sep.join(self.path_s.split(os.sep)[:-2])
+        self.base_save_path = args.results_dir
         self.voxel_grid_size = args.voxel_grid_size
 
         # Compute median resolution of the point clouds
@@ -138,17 +197,17 @@ class PointCloudTile:
         if not self.save_interim:
             supervoxel_save_path = "None"
         else:
-            base_folder = os.path.join(os.sep.join(self.path_s.split(os.sep)[:-2]), 'supervoxels')
-            if not os.path.exists(base_folder):
-                os.makedirs(base_folder)
+            base_folder = self.base_save_path  / 'supervoxels'
+            if not base_folder.exists():
+                base_folder.mkdir()
 
-            file_name = 'supervoxel_tile_{}_{:.1f}.txt'.format(self.tile_nr, supervoxel_radius)
-            supervoxel_save_path = os.path.join(base_folder, file_name)
+            file_name = 'supervoxel_tile_{}_{:.1f}.txt'.format(self.tile_id, supervoxel_radius)
+            supervoxel_save_path = base_folder / file_name
 
-        supervoxel_idx = supervoxel.computeSupervoxel(self.path_s,
+        supervoxel_idx = supervoxel.computeSupervoxel(str(self.path_s),
                                                       self.n_normals,
                                                       supervoxel_radius,
-                                                      supervoxel_save_path)
+                                                      str(supervoxel_save_path))
 
         supervoxel_idx = np.asarray(supervoxel_idx).reshape(-1, 1)
 
@@ -239,7 +298,7 @@ class PointCloudTile:
             if not os.path.exists(save_path):
                 os.makedirs(save_path)
 
-            np.savez(os.path.join(save_path, 'features_tile_{}_{:.1f}.npz'.format(self.tile_nr, np.sqrt(3) * (
+            np.savez(os.path.join(save_path, 'features_tile_{}_{:.1f}.npz'.format(self.tile_id, np.sqrt(3) * (
                         10 * self.median_resolution))),
                      feat_s=self.local_features_s.cpu(), feat_t=self.local_features_t.cpu())
 
@@ -291,7 +350,7 @@ class PointCloudTile:
             if not os.path.exists(save_path):
                 os.makedirs(save_path)
 
-            np.savez(os.path.join(save_path, 'correspondences_tile_{}.npz'.format(self.tile_nr)),
+            np.savez(os.path.join(save_path, 'correspondences_tile_{}.npz'.format(self.tile_id)),
                      corr=self.correspondences)
 
         gc.collect()
@@ -365,7 +424,7 @@ class PointCloudTile:
         if not os.path.exists(save_path_output):
             os.makedirs(save_path_output)
 
-        np.savetxt(os.path.join(save_path_output, 'displacement_magnitude_tile_{}.txt'.format(self.tile_nr)),
+        np.savetxt(os.path.join(save_path_output, 'displacement_magnitude_tile_{}.txt'.format(self.tile_id)),
                    np.concatenate((filtered_results, filtered_magnitudes.reshape(-1, 1)), axis=1))
 
         # If maximum magnitude parameter is set, filter all points with larger magnitude estimates
@@ -397,7 +456,7 @@ class PointCloudTile:
             if not os.path.exists(save_path_filtered_mag):
                 os.makedirs(save_path_filtered_mag)
 
-            np.savetxt(os.path.join(save_path_filtered_mag, 'displacement_magnitude_tile_{}.txt'.format(self.tile_nr)),
+            np.savetxt(os.path.join(save_path_filtered_mag, 'displacement_magnitude_tile_{}.txt'.format(self.tile_id)),
                        np.concatenate((filtered_results, filtered_magnitudes.reshape(-1, 1)), axis=1))
 
             # If selected combine the inliers estimated by out method with the C2C estimates for the outliers
@@ -411,7 +470,7 @@ class PointCloudTile:
 
                 c2c_displacements[inlier_idx[mag_inlier]] = filtered_magnitudes
 
-                np.savetxt(os.path.join(save_path_c2c, 'displacement_magnitude_tile_{}.txt'.format(self.tile_nr)),
+                np.savetxt(os.path.join(save_path_c2c, 'displacement_magnitude_tile_{}.txt'.format(self.tile_id)),
                            np.concatenate((save_coords[:, 0:3], c2c_displacements.reshape(-1, 1)), axis=1))
 
 
@@ -425,7 +484,7 @@ class PointCloudTile:
 
             c2c_displacements[inlier_idx] = filtered_magnitudes
 
-            np.savetxt(os.path.join(save_path_c2c, 'displacement_magnitude_tile_{}.txt'.format(self.tile_nr)),
+            np.savetxt(os.path.join(save_path_c2c, 'displacement_magnitude_tile_{}.txt'.format(self.tile_id)),
                        np.concatenate((save_coords[:, 0:3], c2c_displacements.reshape(-1, 1)), axis=1))
 
         end_time = time.time()
@@ -475,59 +534,65 @@ def feature_based_deformation_analysis(args: F2S3RunSettings):
     Main function of this scripts. Starts by tiling the point clouds and then loops over the individual tiles and performs the deformation analysis.
 
     Args:
-        args (dict): command line parameters
+        args (F2S3RunSettings): command line parameters
 
     """
 
     start_time_whole_analysis = time.time()
 
+    with resources.path('f2s3.pretrained_models.feature_descriptor', 'model_best.pth') as f_m:
+        f_m = Path(f_m)
+    with resources.path('f2s3.pretrained_models.outlier_filtering', 'model_best.pt') as o_m:
+        o_m = Path(o_m)
+
     # Load the feature descriptor model
     feature_descriptor = PointNetFeature()
-    feature_descriptor.load_state_dict(torch.load('pretrained_models/feature_descriptor/model_best.pth'))
+    feature_descriptor.load_state_dict(torch.load(f_m))
     feature_descriptor.cuda()
     feature_descriptor.eval()
 
     filtering_network = FilteringNetwork()
-    filtering_network.load_state_dict(torch.load('pretrained_models/outlier_filtering/model_best.pt'))
+    filtering_network.load_state_dict(torch.load(o_m))
     filtering_network.cuda()
     filtering_network.eval()
 
-    # Resave point clouds with PCL (this makes subsequent steps much faster)
-    logging.info('Starting the resave and tiling of the original point clouds.')
-    # pc_tiling.resave_point_cloud(args.source_cloud,
-    #                              args.target_cloud,
-    #                              args.verbose)
+    if not args.start_from_tiled_data:
+        # Resave point clouds with PCL (this makes subsequent steps much faster)
+        logging.info('Starting the resave and tiling of the original point clouds.')
+        # pc_tiling.resave_point_cloud(args.source_cloud,
+        #                              args.target_cloud,
+        #                              args.verbose)
 
-    # Tile the point cloud into smaller tiles that can be processed on a standalone computer
-    pc_tiling.tile_point_clouds(args.source_cloud,
-                                args.target_cloud,
-                                args.max_points_per_tile,
-                                10000,
-                                bool(args.voxel_grid_size),
-                                args.voxel_grid_size,
-                                0.0,
-                                -1,
-                                args.verbose)
+        # Tile the point cloud into smaller tiles that can be processed on a standalone computer
+        pc_tiling.tile_point_clouds(str(args.source_cloud),
+                                    str(args.target_cloud),
+                                    str(args.tiled_data),
+                                    args.max_points_per_tile,
+                                    10000,
+                                    bool(args.voxel_grid_size),
+                                    args.voxel_grid_size,
+                                    0.0,
+                                    -1,
+                                    args.verbose)
 
     # Loop over the tiles and perform the deformation analysis
-    logging.info('Starting deformation analysis on individual tiles.')
+    logging.info(f'Starting deformation analysis on tiles found at {args.tiled_data}.')
 
-    tile_list = sorted(
-        glob.glob(os.path.join(os.sep.join(args.source_cloud.split(os.sep)[:-2]), 'tiled_data/source_tile_*')))
+    tile_list = sorted(list(args.tiled_data.glob("source_tile_*")))
+        # glob.glob(os.path.join(os.sep.join(args.source_cloud.split(os.sep)[:-2]), 'tiled_data/source_tile_*')))
 
     if args.verbose:
-        logging.info(
-            '{} tiles in the first epoch. Tiles with less than 5000 points will be removed.'.format(len(tile_list)))
+        logging.info(f'{len(tile_list)} tiles in the first epoch. Tiles with less than 5000 points will be removed.')
 
     for idx, tile_s in enumerate(tile_list):
         logging.info('----------------------------------------------------------------------')
         logging.info('Processing tile {}/{}'.format(idx + 1, len(tile_list)))
 
-        tile_nr = tile_s.split(os.sep)[-1].split('_')[-1].split('.')[0]
+        tile_nr = tile_s.stem.split("_")[-1]
 
-        tile_t = '{}/target_tile_{}.ply'.format(os.sep.join(tile_s.split(os.sep)[:-1]), tile_nr)
+        tile_t = args.tiled_data / f"target_tile_{tile_nr}.ply"
 
-        if os.path.exists(tile_t):
+        if tile_t.exists():
             deformation_data = PointCloudTile(tile_s, tile_t, tile_nr, feature_descriptor, filtering_network, args)
 
             start_time = time.time()

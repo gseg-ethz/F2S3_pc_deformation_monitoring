@@ -1,4 +1,4 @@
-from src.f2s3.utils import kabsch_transformation_estimation
+from f2s3.utils import kabsch_transformation_estimation
 import torch
 import torch.nn as nn
 
