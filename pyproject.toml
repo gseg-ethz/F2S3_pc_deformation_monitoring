@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "f2s3"
-version = "0.1.0"
+#version = "0.1.0"
 authors = [
     {name = "Zan Gojcic"},
     {name = "Nicholas Meyer", email = "meyernic@ethz.ch"},
@@ -26,8 +26,12 @@ classifiers = [ # https://packaging.python.org/en/latest/guides/writing-pyprojec
     "Private :: Do Not Upload" # REMOVE BEFORE FLIGHT -- PyPI will always reject packages with classifiers beginning with Private ::
 ]
 
+dynamic = ["version"]
+
 dependencies = [
     "torch",
+    "torchvision",
+    "torchaudio",
     "open3d ~=0.15",
     "numpy",
     "glob2",
@@ -52,6 +56,9 @@ f2s3 = [
     "pretrained_models/outlier_filtering/model_best.pt",
 
 ]
+
+[tool.setuptools.dynamic]
+version = {attr = "f2s3.__version__"}
 
 [project.urls]
 Homepage = "https://example.com"
