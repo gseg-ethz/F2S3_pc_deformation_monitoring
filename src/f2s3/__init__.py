@@ -1,1 +1,4 @@
-__version__ = "2.0.0a1"
+__all__ = ["__version__", "cli", "core"]
+
+from ._version import __version__
+from . import cli, core
