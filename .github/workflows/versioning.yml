@@ -1,0 +1,103 @@
+name: Versioning and Release
+
+on:
+  push:
+    branches:
+      - main
+      - "dev_*"  # Include feature branches for pre-release versions
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # Ensure full history is available
+
+      - name: Get latest tag
+        id: get_version
+        run: |
+          echo "Fetching latest tag..."
+
+          # Get latest tag sorted by creation date (supports both annotated and lightweight tags)
+          LATEST_TAG=$(git tag --sort=-creatordate | head -n 1)
+
+          # If no tags exist, default to v0.0.0
+          if [[ -z "$LATEST_TAG" ]]; then
+            LATEST_TAG="v0.0.0"
+          fi
+
+          echo "Detected latest tag: $LATEST_TAG"
+          echo "LATEST_TAG=$LATEST_TAG" >> $GITHUB_ENV
+          echo "SKIP_VERSION=false" >> $GITHUB_ENV
+
+
+      - name: Handle pre-release versioning for feature branches
+        if: github.ref != 'refs/heads/main'
+        run: |
+          DEV_VERSION="${LATEST_TAG//v/}-dev.$(date +%Y%m%d%H%M%S)"
+          echo "DEV_VERSION=$DEV_VERSION" >> $GITHUB_ENV
+          echo "Development version: $DEV_VERSION"
+
+      - name: Determine sequential version bumps
+        if: github.ref == 'refs/heads/main' && env.SKIP_VERSION == 'false'
+        id: determine_bump
+        run: |
+          echo "Fetching commit history for versioning..."
+
+          # Fetch commit messages since the last tag, ensuring correct commit range
+          LAST_TAG_COMMIT=$(git rev-list -n 1 $LATEST_TAG 2>/dev/null || echo "")
+
+          if [[ -z "$LAST_TAG_COMMIT" ]]; then
+            echo "No previous tag found, using all commits."
+            MERGE_COMMITS=$(git log --pretty=format:"%h - %s" --reverse)
+          else
+            echo "Using commit range: $LAST_TAG_COMMIT..HEAD"
+            MERGE_COMMITS=$(git log $LAST_TAG_COMMIT..HEAD --pretty=format:"%h - %s" --reverse)
+          fi
+
+          # Extract current version
+          OLD_VERSION=${LATEST_TAG//v/}
+          MAJOR=$(echo $OLD_VERSION | cut -d. -f1)
+          MINOR=$(echo $OLD_VERSION | cut -d. -f2)
+          PATCH=$(echo $OLD_VERSION | cut -d. -f3)
+
+          # Replay each commit in order
+          while read -r commit; do
+            echo "Evaluating commit: $commit"
+            if echo "$commit" | grep -Eiq "#major"; then
+              echo "Found major version bump"
+              MAJOR=$((MAJOR + 1))
+              MINOR=0  # Reset minor and patch since it's a major bump
+              PATCH=0
+            elif echo "$commit" | grep -Eiq "#minor"; then
+              echo "Found minor version bump"
+              MINOR=$((MINOR + 1))
+              PATCH=0  # Reset patch since it's a minor bump
+            elif echo "$commit" | grep -Eiq "#patch"; then
+              echo "Found patch version bump"
+              PATCH=$((PATCH + 1))
+            fi
+          done <<< "$MERGE_COMMITS"
+
+          # Ensure version actually changed before tagging
+          NEW_VERSION="$MAJOR.$MINOR.$PATCH"
+          if [[ "$OLD_VERSION" == "$NEW_VERSION" ]]; then
+            echo "No version change detected. Exiting..."
+            echo "SKIP_VERSION=true" >> $GITHUB_ENV
+            exit 0
+          fi
+
+          echo "Final Version: v$NEW_VERSION"
+          echo "NEW_TAG=v$NEW_VERSION" >> $GITHUB_ENV
+
+      - name: Create new tag
+        if: github.ref == 'refs/heads/main' && env.SKIP_VERSION == 'false'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "github-actions@github.com"
+          git tag $NEW_TAG
+          git push https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git $NEW_TAG

@@ -1,3 +1,9 @@
+# Actions
+src/**/_version.py
+
+# BAK files
+**/*.bak
+
 ## Own
 
 # PCL
