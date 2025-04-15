@@ -3,7 +3,7 @@ from pathlib import Path
 
 import torch
 
-from f2s3.core import F2S3RunSettings, feature_based_deformation_analysis
+from .core import F2S3RunSettings, feature_based_deformation_analysis
 
 def main():
     parser = argparse.ArgumentParser()

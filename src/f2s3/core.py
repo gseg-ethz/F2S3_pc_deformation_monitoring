@@ -36,10 +36,10 @@ from plotly.graph_objs.icicle import Pathbar
 from tqdm import tqdm
 from sklearn.neighbors import NearestNeighbors
 
-from f2s3.descriptor_model import PointNetFeature
-from f2s3.filtering_model import FilteringNetwork
-from f2s3.data import FeatureExtractionDataset
-from f2s3.utils import transform_point_cloud, compute_c2c
+from .descriptor_model import PointNetFeature
+from .filtering_model import FilteringNetwork
+from .data import FeatureExtractionDataset
+from .utils import transform_point_cloud, compute_c2c
 
 from pc_tiling import pc_tiling
 from supervoxel import supervoxel
