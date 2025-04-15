@@ -1,6 +1,7 @@
-from f2s3.utils import kabsch_transformation_estimation
 import torch
 import torch.nn as nn
+
+from .utils import kabsch_transformation_estimation
 
 class PointCN(nn.Module):
     def __init__(self, channels):
