@@ -32,13 +32,11 @@ python f2s3_deformation_analysis.py --source_cloud ./data/_sample_folder/raw_dat
 python f2s3_deformation_analysis.py -h
 ```
 
-```shell 
-Note: The code in this repository was developed for the ubuntu operating system and was tested on the following configurations:
-- Ubuntu 16.04, 18.04, 20.04
-- Python 3.6, 3.8
-- CUDA 10.1, 10.2, 11.3
-- Pytorch 1.7, 1.10
-```
+> Note: The code in this repository was developed for the ubuntu operating system and was tested on the following configurations:
+> - Ubuntu 16.04, 18.04, 20.04, 22.04, 24.04
+> - Python 3.6, 3.8, 3.11
+> - CUDA 10.1, 10.2, 11.3, 12.6
+> - Pytorch 1.7, 1.10, 2.6
 
 ## Citation
 
