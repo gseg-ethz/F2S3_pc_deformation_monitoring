@@ -3,17 +3,25 @@
     ".": {
       "changelog-path": "CHANGELOG.md",
       "release-type": "simple",
-      "bump-minor-pre-major": false,
-      "bump-patch-for-minor-pre-major": false,
+      "bump-minor-pre-major": true,
+      "bump-patch-for-minor-pre-major": true,
       "draft": false,
       "prerelease": false,
+      "skip-github-release": false,
       "changelog-sections": [
-        {"type": "feat", "section": "✨ Features"},
-        {"type": "fix", "section": "🐛 Bug Fixes"},
-        {"type": "docs", "section": "📝 Documentation"},
-        {"type": "refactor", "section": "🔨 Refactoring"},
-        {"type": "chore", "section": "🧰 Miscellaneous"}
-      ]
+        { "type": "feat",     "section": "✨ Features" },
+        { "type": "feature",  "section": "✨ Features" },
+        { "type": "fix",      "section": "🐛 Bug Fixes" },
+        { "type": "perf",     "section": "🚀 Performance Improvements" },
+        { "type": "revert",   "section": "⏪ Reverts" },
+        { "type": "docs",     "section": "📚 Documentation" },
+        { "type": "style",    "section": "🎨 Styles" },
+        { "type": "chore",    "section": "🧹 Miscellaneous Chores" },
+        { "type": "refactor", "section": "♻️ Code Refactoring" },
+        { "type": "test",     "section": "✅ Tests" },
+        { "type": "build",    "section": "🔨 Build System" },
+        { "type": "ci",       "section": "🤖 Continuous Integration" }
+  ]
     }
   },
   "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json"
