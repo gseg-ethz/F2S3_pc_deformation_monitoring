@@ -2,7 +2,8 @@
 The following procedure was tested on a fresh install of Ubuntu 20.04 LTS in March 2022.
 
 ## CUDA
-F2S3 requires a CUDA-enabled GPU. We would recommend following the [official installation guide](https://docs.nvidia.com/cuda/cuda-installation-guide-linux/index.html) for the CUDA Toolkit provided by NVIDIA. In the following, we will provide the necessary steps valid at the time of testing.
+F2S3 requires a CUDA-enabled GPU. We would recommend following the [official installation guide](https://docs.nvidia.com/cuda/cuda-installation-guide-linux/index.html) for the CUDA 
+Toolkit provided by NVIDIA. In the following, we will provide the necessary steps valid at the time of testing.
 
 ```shell
 # Install developement tools
@@ -31,13 +32,15 @@ sudo apt-get update
 sudo apt-get install cuda
 ```
 
-Additionally, environment variables need to be updated:
+Additionally, environment variables need to be updated (the paths need to be adapted based on the CUDA version!):
 ```shell
 export PATH=/usr/local/cuda-11.6/bin${PATH:+:${PATH}}
 export LD_LIBRARY_PATH=/usr/local/cuda-11.6/lib64${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}
 ```
 
-These commands need to be run everytime a new terminal session is opened. To make the changes persistent for the current user, the above lines can be added to `~/.bashrc` (current terminal needs to be restarted after modification). The successful install can be checked with `nvcc --version`.
+These commands need to be run everytime a new terminal session is opened. To make the changes persistent for the current 
+user, the above lines can be added to `~/.bashrc` (current terminal needs to be restarted after modification). The 
+successful install can be checked with `nvcc --version`.
 
 ## GIT Repo
 
@@ -57,7 +60,7 @@ cd F2S3
 ```
 
 ## Virtual environment
-We tested both anaconda and pip based installations. In the following we present the steps based on pip.
+We tested both anaconda and venv based installations. In the following we present the steps based on venv and pip.
 
 ```shell
 sudo apt install python3.8-venv
@@ -69,7 +72,8 @@ source ./venv/bin/activate
 ```
 
 ## PyTorch
-We would recommend checking the [PyTorch website](https://pytorch.org/get-started/locally/) for the current installation recommendations. F2S3 was both tested with CUDA version 10.X and 11.X. Check which version is installed by running `nvcc --version`.  
+We would recommend checking the [PyTorch website](https://pytorch.org/get-started/locally/) for the current installation recommendations. F2S3 was both 
+tested with CUDA version 10.X, 11.X, and 12.X. Check which version is installed by running `nvcc --version`.  
 
 ```shell
 pip3 install torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu113
@@ -84,7 +88,7 @@ The code snippet should return `true`. If not, check the environment variables w
 
 ## Install additional requirements
 
-In a first step addiontal apt packages need to be installed:
+In a first step additional apt packages need to be installed:
 ```shell
 sudo apt install python3-dev
 sudo apt install swig
@@ -92,47 +96,8 @@ sudo apt install cmake
 
 sudo apt install libpcl-dev
 ```
+Now install F2S3 by running:
 
 ```shell
-pip install open3d
-pip install -r requirements.txt
+pip install .
 ```
-
-## C++ tools and python wrappers
-
-C++ tools are located in `./cpp_core/' and their python wrappers can be compiled as follows:
-
-Before building the `pc_tiling` & `supervoxel_segmentation` modules, you need to adapt the `CMakeLists.txt` (line 21 for pc_tiling  & line 20 for supervoxel_segmentation) to use the correct version of the boost library for python.
-
-### pc_tiling
-
-```shell
-cd /path/to/project_parent_folder/F2S3/cpp_core/pc_tiling
-cmake -DCMAKE_BUILD_TYPE=Release .
-make -j8
-swig -c++ -python pc_tiling.i
-```
-
-Test the successful python tie-in by running `python -c "import pc_tiling"`. If you don't get an error message it is successful.
-
-After the generation pc_tiling can be imported into python with `import pc_tiling`. Specific information on how to use pc_tiling (i.e. available functions and their input parameters) are available in respective [readme](../cpp_core/pc_tiling/).
-
-
-### supervoxel_segmentation
-Before continuing to the next step, the location of the `numpy` header files needs to be identified:
-```shell
-python -c "import numpy; print(numpy.get_include())"
-```
-
-Replace the include directory in the following code block: 
-```shell
-cd /path/to/project_parent_folder/F2S3/cpp_core/supervoxel_segmentation
-cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS=-I\ /path/to/project_parent_folder/F2S3/venv/lib/python3.8/site-packages/numpy/core/include .
-make -j8
-swig -c++ -python supervoxel.i
-```
-
-Again, test the successful python tie-in by running `python -c "import supervoxel"`.
-
-After the generation supervoxel_segmentation can be imported into python with `import supervoxel`. Specific information on how to use supervoxel_segmentation (i.e. available functions and their input parameters) are available in respective [readme](../cpp_core/supervoxel_segmentation/).
-

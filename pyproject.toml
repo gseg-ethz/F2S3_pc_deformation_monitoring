@@ -39,8 +39,8 @@ dependencies = [
     "coloredlogs",
     "hnswlib",
     "scikit-learn",
-    "pc_tiling", # @ https://example.net/archives/package-b.whl
-    "supervoxel",
+    "pc_tiling @ git+ssh://git@github.com/gseg-ethz/pc_tiling.git@v0.1.0",
+    "supervoxel @ git+ssh://git@github.com/gseg-ethz/supervoxel.git@v0.1.0",
 ]
 
 [tool.setuptools]
