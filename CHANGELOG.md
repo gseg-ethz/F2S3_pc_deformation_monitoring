@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.0.3](https://github.com/gseg-ethz/F2S3_pc_deformation_monitoring/compare/v2.0.2...v2.0.3) (2025-04-15)
+
+
+### 🧹 Miscellaneous Chores
+
+* Adapted release-please ([d47fe94](https://github.com/gseg-ethz/F2S3_pc_deformation_monitoring/commit/d47fe94343c6c8960269a469f335e3f9f63724ac))
+
 ## [2.0.2](https://github.com/gseg-ethz/F2S3_pc_deformation_monitoring/compare/v2.0.1...v2.0.2) (2025-04-15)
 
 
