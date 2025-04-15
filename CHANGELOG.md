@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.0.1](https://github.com/gseg-ethz/F2S3_pc_deformation_monitoring/compare/v2.0.0...v2.0.1) (2025-04-15)
+
+
+### 🧰 Miscellaneous
+
+* Adapted installation procedure ([88b2d5c](https://github.com/gseg-ethz/F2S3_pc_deformation_monitoring/commit/88b2d5c7e1b6fd45383b91ce0977151d24cdc7ce))
+
 ## [2.0.0](https://github.com/gseg-ethz/F2S3_pc_deformation_monitoring/compare/v1.1.1...v2.0.0) (2025-04-15)
 
 
