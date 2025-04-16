@@ -4,7 +4,6 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "f2s3"
-#version = "0.1.0"
 authors = [
     {name = "Zan Gojcic"},
     {name = "Nicholas Meyer", email = "meyernic@ethz.ch"},
@@ -15,7 +14,7 @@ maintainers = [
 description = "Description of ModuleA"
 requires-python = ">=3.11"
 keywords = ["ONE", "TWO"]
-license = {text = "Proprietary"} # To be changed once released
+license = {file = "LICENSE"} # To be changed once released
 classifiers = [ # https://packaging.python.org/en/latest/guides/writing-pyproject-toml/#classifiers
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
