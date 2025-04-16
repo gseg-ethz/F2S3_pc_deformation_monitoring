@@ -24,12 +24,12 @@ The provided code is partially implemented in C++ (tiling and supervoxel segment
 **Basic function call**
 
 ```shell
-python f2s3_deformation_analysis.py --source_cloud ./data/_sample_folder/raw_data/epoch1.ply --target_cloud ./data/_sample_folder/raw_data/epoch2.ply
+f2s3 --source_cloud ./data/_sample_folder/raw_data/epoch1.ply --target_cloud ./data/_sample_folder/raw_data/epoch2.ply
 ```
 
 **More settings**
 ```shell
-python f2s3_deformation_analysis.py -h
+f2s3 -h
 ```
 
 > Note: The v2 code in this repository was developed for the ubuntu operating system and was tested on the following 
