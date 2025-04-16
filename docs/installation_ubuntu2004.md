@@ -60,16 +60,8 @@ cd F2S3
 ```
 
 ## Virtual environment
-We tested both anaconda and venv based installations. In the following we present the steps based on venv and pip.
+We tested f2s3 with (mini)anaconda. In the following we present the steps based on conda and pip.
 
-```shell
-sudo apt install python3.8-venv
-cd /path/to/project_parent_folder/F2S3
-python3 -m venv ./venv
-
-# Activate virtual environment
-source ./venv/bin/activate
-```
 
 ## PyTorch
 We would recommend checking the [PyTorch website](https://pytorch.org/get-started/locally/) for the current installation recommendations. F2S3 was both 
@@ -101,3 +93,13 @@ Now install F2S3 by running:
 ```shell
 pip install .
 ```
+
+Test if the library works with: 
+```shell
+f2s3 -h
+```
+
+> Note: We have observed issues with  `libstdc++`. We were able to solve the problem with a conda installation: 
+> `conda install -c conda-forge libstdcxx-ng`
+
+
