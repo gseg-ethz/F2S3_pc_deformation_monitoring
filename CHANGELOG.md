@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.0.4](https://github.com/gseg-ethz/F2S3_pc_deformation_monitoring/compare/v2.0.3...v2.0.4) (2025-04-16)
+
+
+### 📚 Documentation
+
+* Added MIT license ([645cb31](https://github.com/gseg-ethz/F2S3_pc_deformation_monitoring/commit/645cb31d2944fe1fe5730367a37699bfd73f5917))
+* Updated README.md to v2 ([9ec13d9](https://github.com/gseg-ethz/F2S3_pc_deformation_monitoring/commit/9ec13d979fe3665a76234eeab89501ed900c9068))
+
 ## [2.0.3](https://github.com/gseg-ethz/F2S3_pc_deformation_monitoring/compare/v2.0.2...v2.0.3) (2025-04-15)
 
 
