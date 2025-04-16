@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.0.5](https://github.com/gseg-ethz/F2S3_pc_deformation_monitoring/compare/v2.0.4...v2.0.5) (2025-04-16)
+
+
+### 📚 Documentation
+
+* Added not in installation notes on libstdc++ ([fe04bf7](https://github.com/gseg-ethz/F2S3_pc_deformation_monitoring/commit/fe04bf715bf67687b38c0d7e0ea935284b7b205d))
+* Updated README.md to the script hook ([5e1fe8f](https://github.com/gseg-ethz/F2S3_pc_deformation_monitoring/commit/5e1fe8f6e5d01048b76f05c05274e9cf7e158349))
+
 ## [2.0.4](https://github.com/gseg-ethz/F2S3_pc_deformation_monitoring/compare/v2.0.3...v2.0.4) (2025-04-16)
 
 
