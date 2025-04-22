@@ -60,7 +60,7 @@ cd F2S3
 ```
 
 ## Virtual environment
-We tested f2s3 with (mini)anaconda. In the following we present the steps based on conda and pip.
+We tested f2s3 with (mini)anaconda and virtualenv. In the following we present the steps based on conda and pip.
 
 
 ## PyTorch
@@ -99,7 +99,9 @@ Test if the library works with:
 f2s3 -h
 ```
 
-> Note: We have observed issues with  `libstdc++`. We were able to solve the problem with a conda installation: 
+> Note: We have observed issues with  `libstdc++` under anaconda installs. We were able to solve the problem with a 
+> conda installation: 
+> 
 > `conda install -c conda-forge libstdcxx-ng`
 
 
