@@ -38,8 +38,8 @@ dependencies = [
     "coloredlogs",
     "hnswlib",
     "scikit-learn",
-    "pc_tiling @ git+ssh://git@github.com/gseg-ethz/pc_tiling.git@v0.1.0",
-    "supervoxel @ git+ssh://git@github.com/gseg-ethz/supervoxel.git@v0.1.0",
+    "pc_tiling @ git+ssh://git@github.com/gseg-ethz/pc_tiling.git@v0.1.2",
+    "supervoxel @ git+ssh://git@github.com/gseg-ethz/supervoxel.git@v0.1.2",
 ]
 
 [tool.setuptools]
