@@ -1,5 +1,21 @@
 # Changelog
 
+## [2.0.5](https://github.com/gseg-ethz/F2S3_pc_deformation_monitoring/compare/v2.0.4...v2.0.5) (2025-07-04)
+
+
+### 📚 Documentation
+
+* Added not in installation notes on libstdc++ ([fe04bf7](https://github.com/gseg-ethz/F2S3_pc_deformation_monitoring/commit/fe04bf715bf67687b38c0d7e0ea935284b7b205d))
+* Updated README.md to the script hook ([5e1fe8f](https://github.com/gseg-ethz/F2S3_pc_deformation_monitoring/commit/5e1fe8f6e5d01048b76f05c05274e9cf7e158349))
+* Updated to installation notes to new build-systems ([c0c9c48](https://github.com/gseg-ethz/F2S3_pc_deformation_monitoring/commit/c0c9c482bd53e2b0439a8a38ca4dfe3de1652f6b))
+
+
+### 🔨 Build System
+
+* Added versioning for git archival` ([3c9dc78](https://github.com/gseg-ethz/F2S3_pc_deformation_monitoring/commit/3c9dc78b79245e783ec837c022057b32769c6869))
+* Switched from ssh to https for public repo github dependencies ([1a45699](https://github.com/gseg-ethz/F2S3_pc_deformation_monitoring/commit/1a456991794d4298e5f29b33ed344ca5a114ac79))
+* Updated to new build-systems in pc_tiling and supervoxel ([117a436](https://github.com/gseg-ethz/F2S3_pc_deformation_monitoring/commit/117a436c0cf2bea2276d77df89fe5b9b65e20344))
+
 ## [2.0.4](https://github.com/gseg-ethz/F2S3_pc_deformation_monitoring/compare/v2.0.3...v2.0.4) (2025-04-16)
 
 
