@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.0.6](https://github.com/gseg-ethz/F2S3_pc_deformation_monitoring/compare/v2.0.5...v2.0.6) (2025-07-09)
+
+
+### 🐛 Bug Fixes
+
+* Added graceful exits per tile to avoid crashes on empty ([ed529a2](https://github.com/gseg-ethz/F2S3_pc_deformation_monitoring/commit/ed529a2ffe85f0ba926cbe380c28252a92a08a13))
+
 ## [2.0.5](https://github.com/gseg-ethz/F2S3_pc_deformation_monitoring/compare/v2.0.4...v2.0.5) (2025-07-04)
 
 
