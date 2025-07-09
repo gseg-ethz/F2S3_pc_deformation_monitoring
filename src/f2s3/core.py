@@ -217,6 +217,7 @@ class PointCloudTile:
         self.supervoxels = []
         for idx in supervoxels:
             sv_idx = np.where(supervoxel_idx == idx)[0]
+            # Filter out small supervoxels
             if sv_idx.shape[0] > 10:
                 self.supervoxels.append(sv_idx)
 
@@ -225,7 +226,7 @@ class PointCloudTile:
         # Only print out the required time if the verbose mode is selected
         if self.verbose:
             logging.info('Supervoxel extraction completed')
-            logging.info('{} supervoxels computed in: {:.2f} s'.format(supervoxels.shape[0], end_time - start_time))
+            logging.info('{} supervoxels computed in: {:.2f} s of which {:d} were above the size threshold.'.format(supervoxels.shape[0], end_time - start_time, len(self.supervoxels)))
 
         gc.collect()
 
@@ -289,7 +290,7 @@ class PointCloudTile:
 
         if self.verbose:
             logging.info('Extraction of the local feature descriptors completed.')
-            logging.info('Local features were computed in {} s'.format(end_time - start_time))
+            logging.info('Local features were computed in {:.2f} s'.format(end_time - start_time))
 
         # Save the feature descriptors if the interim save result mode is selected
         if self.save_interim:
@@ -356,7 +357,6 @@ class PointCloudTile:
         gc.collect()
 
     def filter_correspondences(self):
-
         data = {}
 
         start_time = time.time()
@@ -396,6 +396,11 @@ class PointCloudTile:
 
         torch.cuda.empty_cache()
         gc.collect()
+
+        if not inlier_idx:
+            end_time = time.time()
+            logging.info('Outlier detection step did not identify any inliers and completed in {:.2f} s'.format(end_time - start_time))
+            return
 
         if inlier_idx:
             inlier_idx = np.concatenate(inlier_idx, axis=0)
@@ -593,17 +598,24 @@ def feature_based_deformation_analysis(args: F2S3RunSettings):
         tile_t = args.tiled_data / f"target_tile_{tile_nr}.ply"
 
         if tile_t.exists():
-            deformation_data = PointCloudTile(tile_s, tile_t, tile_nr, feature_descriptor, filtering_network, args)
+            try:
+                deformation_data = PointCloudTile(tile_s, tile_t, tile_nr, feature_descriptor, filtering_network, args)
 
-            start_time = time.time()
-            deformation_data.compute_local_features()
-            deformation_data.compute_supervoxels()
-            deformation_data.compute_correspondences()
-            deformation_data.filter_correspondences()
+                start_time = time.time()
+                deformation_data.compute_local_features()
+                deformation_data.compute_supervoxels()
+                if len(deformation_data.supervoxels) == 0:
+                    end_time = time.time()
+                    logging.warning(f"No results produced for tile {tile_nr}. Time spent: {end_time - start_time:.2f} s")
+                    continue
 
-            end_time = time.time()
-            logging.info('Whole processing of tile {} was finished in: {:.2f} s'.format(tile_nr, end_time - start_time))
+                deformation_data.compute_correspondences()
+                deformation_data.filter_correspondences()
 
+                end_time = time.time()
+                logging.info('Whole processing of tile {} was finished in: {:.2f} s'.format(tile_nr, end_time - start_time))
+            except Exception as e:
+                logging.error(f"Error processing tile {tile_nr}: {e}")
         else:
             logging.warning('Target tile {} does not exist, skiping computation for tile {}!'.format(tile_t, tile_nr))
 
