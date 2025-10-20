@@ -3,7 +3,7 @@ from pathlib import Path
 
 import torch
 
-from .core import F2S3RunSettings, feature_based_deformation_analysis
+from f2s3.core import F2S3RunSettings, feature_based_deformation_analysis
 
 def main():
     parser = argparse.ArgumentParser()
@@ -51,11 +51,20 @@ def main():
 
     run_settings = F2S3RunSettings(**vars(args))
 
-
-
     with torch.no_grad():
         feature_based_deformation_analysis(run_settings)
 
 
 if __name__ == '__main__':
-    main()
+    # main()
+
+    run_settings = F2S3RunSettings(
+        results_dir = Path("/home/jonal/projects/F2S3/data/test"),
+        source_cloud = Path("/home/jonal/projects/F2S3/data/BGC_TransCanada/2022_BGC_Patch.ply"),
+        target_cloud = Path("/home/jonal/projects/F2S3/data/BGC_TransCanada/2024_BGC_Patch.ply"),
+        start_from_tiled_data= False,
+        refine_results = False,
+    )
+
+    with torch.no_grad():
+        feature_based_deformation_analysis(run_settings)

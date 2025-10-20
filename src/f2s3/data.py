@@ -2,14 +2,14 @@ import numpy as np
 import torch
 import torch.utils.data as data
 import open3d as o3d
-
+from pchandler import PointCloudData
 _EPS = 1e-6
 
 class FeatureExtractionDataset(data.Dataset):
-    def __init__(self, data, data_overlap, points_per_batch, feature_radius, num_points=256):
+    def __init__(self, pcd_data, pcd_data_overlap, points_per_batch, feature_radius, num_points=256):
         
-        self.data = data
-        self.data_overlap = data_overlap
+        self.data: PointCloudData = pcd_data
+        self.data_overlap: o3d.geometry.PointCloud = pcd_data_overlap
         self.points_per_batch = points_per_batch
         self.feature_radius = feature_radius
         self.num_points = num_points
@@ -23,12 +23,11 @@ class FeatureExtractionDataset(data.Dataset):
 
         offset = idx * self.points_per_batch
 
-        batch_data = np.asarray(self.data.points)[offset:offset + self.points_per_batch,:]
+        batch_data = np.asarray(self.data.xyz)[offset:offset + self.points_per_batch,:]
 
         for pt in batch_data:
             pts = self.extract_patch(pt)
             patches_batch.append(torch.from_numpy(pts.T).unsqueeze(0))
-
 
         return torch.cat(patches_batch, axis=0).float()
 
@@ -97,9 +96,8 @@ class FeatureExtractionDataset(data.Dataset):
         return ptall[inds]
 
 
-
     def __len__(self):
-        return int(np.ceil(np.asarray(self.data.points).shape[0]/self.points_per_batch))
+        return int(np.ceil(np.asarray(self.data.xyz).shape[0]/self.points_per_batch))
 
     def reset_seed(self,seed=41):
         logging.info('Resetting the data loader seed to {}'.format(seed))
