@@ -37,6 +37,8 @@ from tqdm import tqdm
 from sklearn.neighbors import NearestNeighbors
 from scipy.spatial import KDTree
 
+from torch.utils.data import DataLoader
+
 from pchandler import PointCloudData
 from pchandler.scalar_fields import ScalarFieldManager
 from pchandler.data_io.core import SUPPORTED_TYPES as SUPPORTED_FILE_TYPES
@@ -139,7 +141,7 @@ class F2S3RunSettings:
 
         # Prepare the logger
         logger = logging.getLogger()
-        coloredlogs.install(level='INFO', logger=logger)
+        coloredlogs.install(level='INFO' if self.verbose else 'VERBOSE', logger=logger)
         log_formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(name)s - %(message)s')
 
         args_save_path = self.results_dir / 'command_line_args.txt'
@@ -152,13 +154,17 @@ class F2S3RunSettings:
         return '\n'.join([f'{field}: {getattr(self, field)}' for field in self.__dataclass_fields__])
 
 
-# TODO Do not change, just ensure all tiles created are PLY
 class PointCloudTile:
     """
     Base point cloud tile class. It implements all the functions needed for the robust estimation of the displacement vectors.
     """
-
-    def __init__(self, path_s: Path, path_t: Path, tile_id: str, feature_extractor, filtering_network, args: F2S3RunSettings):
+    def __init__(self,
+                 path_s: Path,
+                 path_t: Path,
+                 tile_id: str,
+                 feature_extractor,
+                 filtering_network,
+                 args: F2S3RunSettings):
         """
         Class constructor:
 
@@ -166,8 +172,8 @@ class PointCloudTile:
             path_s (str): path to the source point cloud
             path_t (str): path to the target point cloud
             tile_id (str): number of the current point cloud tile
-            feature_extractor (pytorch model): feature extractor model with loaded pretrained weights
-            filtering_network (pytorch model): outlier filtering model with loaded pretrained weights
+            feature_extractor (torch.Model): feature extractor model with loaded pretrained weights
+            filtering_network (torch.Model): outlier filtering model with loaded pretrained weights
             args (dict): selected command line arguments
 
         """
@@ -181,18 +187,12 @@ class PointCloudTile:
         self.pcd_t, flag_t_ply = load_file(self.path_t)
 
 
-        self.pcd_s_overlap = o3d.io.read_point_cloud(str(
+        self.pcd_s_overlap = o3d.io.read_point_cloud(
             self.path_s.parent / "overlap" / (self.path_s.stem + "_overlap.ply")
-        ))
-        self.pcd_t_overlap = o3d.io.read_point_cloud(str(
+        )
+        self.pcd_t_overlap = o3d.io.read_point_cloud(
             self.path_t.parent / "overlap" / (self.path_t.stem + "_overlap.ply")
-        ))
-
-        # overlap_path = os.sep.join(self.path_s.split(os.sep)[:-1])
-        # self.pcd_s_overlap = o3d.io.read_point_cloud(
-        #     os.path.join(overlap_path, "overlap/source_tile_{}_overlap.ply".format(self.tile_id)))
-        # self.pcd_t_overlap = o3d.io.read_point_cloud(
-        #     os.path.join(overlap_path, "overlap/target_tile_{}_overlap.ply".format(self.tile_id)))
+        )
 
         self.feature_extractor = feature_extractor
         self.filtering_network = filtering_network
@@ -210,7 +210,7 @@ class PointCloudTile:
         self.median_resolution = self._compute_resolution()
 
         # Numbers of points used to compute the normal vectors in the supervoxel computation
-        self.n_normals = 30
+        self.n_normals: int = 30
 
     def compute_supervoxels(self):
         """
@@ -224,9 +224,8 @@ class PointCloudTile:
 
         supervoxel_radius = np.max((np.sqrt(3) * (10 * self.median_resolution), self.voxel_grid_size,))
 
-        if self.verbose:
-            logging.info('Starting the supervoxel ectraction.')
-            logging.info('Supervoxel radius equals {:.2f} m.'.format(supervoxel_radius))
+        logging.debug('Starting the supervoxel extraction.')
+        logging.debug(f'Supervoxel radius equals {supervoxel_radius:.2f} m.')
 
         start_time = time.time()
 
@@ -238,7 +237,7 @@ class PointCloudTile:
             if not base_folder.exists():
                 base_folder.mkdir()
 
-            file_name = 'supervoxel_tile_{}_{:.1f}.txt'.format(self.tile_id, supervoxel_radius)
+            file_name = f'supervoxel_tile_{self.tile_id}_{supervoxel_radius:.1f}.txt'
             supervoxel_save_path = base_folder / file_name
 
         supervoxel_idx = supervoxel.computeSupervoxel(str(self.path_s),
@@ -257,12 +256,9 @@ class PointCloudTile:
             if sv_idx.shape[0] > 10:
                 self.supervoxels.append(sv_idx)
 
-        end_time = time.time()
-
         # Only print out the required time if the verbose mode is selected
-        if self.verbose:
-            logging.info('Supervoxel extraction completed')
-            logging.info('{} supervoxels computed in: {:.2f} s'.format(supervoxels.shape[0], end_time - start_time))
+        logging.debug('Supervoxel extraction completed')
+        logging.debug(f'{supervoxels.shape[0]} supervoxels computed in: {time.time() - start_time:.2f} s')
 
         gc.collect()
 
@@ -275,69 +271,62 @@ class PointCloudTile:
 
         neighborhood_radius = np.sqrt(3) * (10 * self.median_resolution)
 
-        if self.verbose:
-            logging.info(
-                f"Starting the computation of local feature descriptors. Neighborhood radius: {neighborhood_radius:.3f}")
+        logging.debug(
+            f"Starting the computation of local feature descriptors. Neighborhood radius: {neighborhood_radius:.3f}"
+        )
 
         # Prepare source and target data loader.
         # If running into the GPU memory problems reduce the number of points in a batch (default is 2000).
         dataset_s = FeatureExtractionDataset(self.pcd_s, self.pcd_s_overlap, 1000, neighborhood_radius)
         dataset_t = FeatureExtractionDataset(self.pcd_t, self.pcd_t_overlap, 1000, neighborhood_radius)
 
-        dataloader_s = torch.utils.data.DataLoader(dataset_s, batch_size=1, shuffle=False, num_workers=6,
-                                                   drop_last=False)
-        dataloader_t = torch.utils.data.DataLoader(dataset_t, batch_size=1, shuffle=False, num_workers=6,
-                                                   drop_last=False)
-
-        start_time = time.time()
+        dataloader_s = DataLoader(dataset_s, batch_size=1, shuffle=False, num_workers=6, drop_last=False)
+        dataloader_t = DataLoader(dataset_t, batch_size=1, shuffle=False, num_workers=6, drop_last=False)
 
         local_features_s = []
         local_features_t = []
 
         start_time = time.time()
 
-        # If verbose mode is selected show the progress bar of the feature computation
+        # If verbose mode is selected, show the progress bar of the feature computation
         if self.verbose:
             dataloader_s = tqdm(dataloader_s, ncols=90)
+            dataloader_t = tqdm(dataloader_t, ncols=90)
+
         # Compute the features for the source point cloud
         for batch in dataloader_s:
             batch_feat = batch.squeeze(0).cuda()
             batch_feat, _, _ = self.feature_extractor(batch_feat)
-
             local_features_s.append(batch_feat)
 
         # Compute the features for the target point cloud
-        if self.verbose:
-            dataloader_t = tqdm(dataloader_t, ncols=90)
-
         for batch in dataloader_t:
             batch_feat = batch.squeeze(0).cuda()
             batch_feat, _, _ = self.feature_extractor(batch_feat)
-
             local_features_t.append(batch_feat)
 
-        # Save the features for the subsequent correspondence estimation
+        # Save the features for subsequent correspondence estimation
         self.local_features_s = torch.cat(local_features_s, 0)
         self.local_features_t = torch.cat(local_features_t, 0)
 
         torch.cuda.empty_cache()
         gc.collect()
-        end_time = time.time()
 
-        if self.verbose:
-            logging.info('Extraction of the local feature descriptors completed.')
-            logging.info('Local features were computed in {} s'.format(end_time - start_time))
+        logging.debug('Extraction of the local feature descriptors completed.')
+        logging.debug(f'Local features were computed in {time.time() - start_time} s')
 
         # Save the feature descriptors if the interim save result mode is selected
         if self.save_interim:
             save_path = self.base_save_path / 'features'
 
-            if not os.path.exists(save_path):
-                os.makedirs(save_path)
+            if not save_path.exists():
+                save_path.mkdir(parents=True, exist_ok=True)
 
-            np.savez(save_path / 'features_tile_{}_{:.1f}.npz'.format(self.tile_id, np.sqrt(3) * (
-                        10 * self.median_resolution)),
-                     feat_s=self.local_features_s.cpu(), feat_t=self.local_features_t.cpu())
+            np.savez(
+                save_path / f'features_tile_{self.tile_id}_{np.sqrt(3) * (10 * self.median_resolution):.1f}.npz',
+                feat_s=self.local_features_s.cpu(),
+                feat_t=self.local_features_t.cpu()
+            )
 
     def compute_correspondences(self):
         """
@@ -355,8 +344,7 @@ class PointCloudTile:
         # Set the number of CPU threads
         num_threads = 16
 
-        if self.verbose:
-            logging.info('Starting the computation of the correspondences in feature space.')
+        logging.debug('Starting the computation of the correspondences in feature space.')
 
         start_time = time.time()
 
@@ -368,45 +356,37 @@ class PointCloudTile:
         p.add_items(self.local_features_t.cpu().numpy())
 
         # Query the elements for themselves and measure recall:
-        start_time = time.time()
         labels, distances = p.knn_query(self.local_features_s.cpu().numpy(), k=1)
-        end_time = time.time()
 
         # Save the correspondences for subsequent steps
-        self.correspondences = np.concatenate(
-            (np.array(self.pcd_s.xyz), np.array(self.pcd_t.xyz)[labels.reshape(-1), :]), axis=1)
+        self.correspondences = np.concatenate((
+            np.array(self.pcd_s.xyz),
+            np.array(self.pcd_t.xyz)[labels.reshape(-1), :]
+        ), axis=1)
 
-        if self.verbose:
-            logging.info(f'Correspondence estimation in the feature space completed in {end_time - start_time:.2f} s')
+        logging.debug(f'Correspondence estimation in the feature space completed in {time.time() - start_time:.2f} s')
 
         # Save the correspondences ad NX2 matrix if the interim save result mode is selected
         if self.save_interim:
-            save_path = os.path.join(self.base_save_path, 'correspondences')
+            save_path = self.base_save_path / 'correspondences'
 
-            if not os.path.exists(save_path):
-                os.makedirs(save_path)
+            if not save_path.exists():
+                save_path.mkdir(parents=True, exist_ok=True)
 
-            np.savez(os.path.join(save_path, 'correspondences_tile_{}.npz'.format(self.tile_id)),
-                     corr=self.correspondences)
+            np.savez(save_path / f'correspondences_tile_{self.tile_id}.npz', corr=self.correspondences)
 
         gc.collect()
 
     def filter_correspondences(self):
-        data = {}
-
         start_time = time.time()
+
         inlier_idx = []
         save_coords = []
         segment_ids = []
-        tiles = []
 
-        if self.verbose:
-            logging.info('Starting the outlier detection step')
+        logging.debug('Starting the outlier detection step')
 
-        if self.verbose:
-            supervoxel_iter = tqdm(self.supervoxels, ncols=90)
-        else:
-            supervoxel_iter = self.supervoxels
+        supervoxel_iter = tqdm(self.supervoxels, ncols=90) if self.verbose else self.supervoxels
 
         # Super voxels are a vector of indices
         for i, supervoxel in enumerate(supervoxel_iter):
@@ -465,8 +445,7 @@ class PointCloudTile:
         tile_pcd.scalar_fields.create_field('magnitude', np.linalg.norm(deformation_vector, axis=1))
         tile_pcd.scalar_fields.create_field('supervoxel_ids', segment_ids[inlier_idx])
 
-        if self.verbose:
-            logging.info(f'{filtered_results.shape[0]} points out of {save_coords.shape[0]} were classified as inlier')
+        logging.debug(f'{filtered_results.shape[0]} points out of {save_coords.shape[0]} were classified as inlier')
 
         save_path: Path = self.base_save_path / 'output'
 
@@ -481,7 +460,6 @@ class PointCloudTile:
         if not save_path_output.is_dir():
             save_path_output.mkdir(parents=True, exist_ok=True)
 
-
         # If maximum magnitude parameter is set, filter all points with larger magnitude estimates
         if self.max_disp_magnitude > 0:
             max_magnitude_idx = np.where(tile_pcd.scalar_fields['magnitude'] < self.max_disp_magnitude)[0].reshape(-1)
@@ -491,27 +469,27 @@ class PointCloudTile:
 
         # If filtered by magnitude is selected also filter very large motion inside a tile
         if self.filter_median_magnitude:
-            if self.verbose:
-                logging.info('Filtering the displacement vectors based on the mean magnitude of the displacement')
+            logging.debug('Filtering the displacement vectors based on the mean magnitude of the displacement')
 
             # Compute the median magnitude
-            median_mag = np.median(tile_pcd.scalar_fields['magnitude'])
+            median_mag = float(np.median(tile_pcd.scalar_fields['magnitude']))
 
-            if self.verbose:
-                logging.info(f'Median magnitude {median_mag}, all displacementes above {30 * median_mag} m will be removed')
+            logging.debug(f'Median magnitude {median_mag}, all displacements above {30 * median_mag} m will be removed')
 
             mag_inlier = np.where(tile_pcd.scalar_fields['magnitude'] < 30 * median_mag)[0]
             tile_pcd.reduce(mag_inlier)
 
             save_path_filtered_mag = save_path / 'filtered_by_magnitude'
 
-            if not os.path.exists(save_path_filtered_mag):
-                os.makedirs(save_path_filtered_mag)
+            if not save_path_filtered_mag.exists():
+                save_path_filtered_mag.mkdir(parents=True, exist_ok=True)
 
             # ply.PlyHandler.save(tile_pcd, save_path_filtered_mag / f"displacement_tile_{self.tile_id}.ply")
 
-            np.savetxt(save_path_filtered_mag / f'displacement_median_magnitude_tile_{self.tile_id}.txt',
-                       np.concatenate((filtered_results, filtered_magnitudes.reshape(-1, 1)), axis=1))
+            np.savetxt(
+                save_path_filtered_mag / f'displacement_median_magnitude_tile_{self.tile_id}.txt',
+                np.concatenate((filtered_results, filtered_magnitudes.reshape(-1, 1)), axis=1)
+            )
 
             # If selected combine the inliers estimated by out method with the C2C estimates for the outliers
             if self.fill_gaps_c2c:
@@ -519,30 +497,33 @@ class PointCloudTile:
 
                 save_path_c2c = save_path / 'combined_with_c2c'
 
-                if not os.path.exists(save_path_c2c):
-                    os.makedirs(save_path_c2c)
+                if not save_path_c2c.exists():
+                    save_path_c2c.mkdir(parents=True, exist_ok=True)
 
                 c2c_displacements[inlier_idx[mag_inlier]] = filtered_magnitudes
 
-                np.savetxt(save_path_c2c / f'displacement_magnitude_tile_{self.tile_id}.txt',
-                           np.concatenate((save_coords[:, 0:3], c2c_displacements.reshape(-1, 1)), axis=1))
+                np.savetxt(
+                    save_path_c2c / f'displacement_magnitude_tile_{self.tile_id}.txt',
+                    np.concatenate((save_coords[:, 0:3], c2c_displacements.reshape(-1, 1)), axis=1)
+                )
 
 
         # If selected combine the inliers estimated by out method with the C2C estimates for the outliers
         elif self.fill_gaps_c2c:
             c2c_displacements = compute_c2c(save_coords[:, 0:3], np.asarray(self.pcd_t.points)).reshape(-1)
 
-            save_path_c2c = os.path.join(save_path, 'combined_with_c2c')
-            if not os.path.exists(save_path_c2c):
-                os.makedirs(save_path_c2c)
+            save_path_c2c = save_path / 'combined_with_c2c'
+            if not save_path_c2c.exists():
+                save_path_c2c.mkdir(parents=True, exist_ok=True)
 
             c2c_displacements[inlier_idx] = filtered_magnitudes
 
-            np.savetxt(os.path.join(save_path_c2c, 'displacement_magnitude_tile_{}.txt'.format(self.tile_id)),
-                       np.concatenate((save_coords[:, 0:3], c2c_displacements.reshape(-1, 1)), axis=1))
+            np.savetxt(
+                save_path_c2c / f'displacement_magnitude_tile_{self.tile_id}.txt',
+                np.concatenate((save_coords[:, 0:3], c2c_displacements.reshape(-1, 1)), axis=1)
+            )
 
-        end_time = time.time()
-        logging.info('Outlier detection step completed in {:.2f} s'.format(end_time - start_time))
+        logging.info(f'Outlier detection step completed in {time.time() - start_time:.2f} s')
 
         ply.PlyHandler.save(tile_pcd, save_path_output / f"displacement_tile_{self.tile_id}.ply")
 
@@ -574,14 +555,9 @@ class PointCloudTile:
         # Resolution of the target point cloud
         resolution_t = np.median(dist01[:, -1])
 
-        end_time = time.time()
-
-        if self.verbose:
-            logging.info(
-                'Median point cloud resolution of the tiles computed in: {:.2f} s'.format(end_time - start_time))
+        logging.debug(f'Median point cloud resolution of the tiles computed in: {time.time() - start_time:.2f} s')
 
         # Lower of the both point cloud resolutions (i.e. larger median distance to the closest points)
-
         pc_resolution = max(resolution_s, resolution_t)
 
         return pc_resolution
@@ -619,7 +595,7 @@ def feature_based_deformation_analysis(args: F2S3RunSettings):
 
     # TODO use tempfile library
     if src_path.suffix != '.ply':
-        logging.info("Creating a copy of the original SOURCE point cloud as PLY")
+        logging.debug("Creating a copy of the original SOURCE point cloud as PLY")
         pcd_s, src_ply_flag = load_file(src_path)
         pcd_s.scalar_fields = ScalarFieldManager()
         temp_src_path = src_path.parent / f"temp_{src_path.stem}.ply"
@@ -629,7 +605,7 @@ def feature_based_deformation_analysis(args: F2S3RunSettings):
         temp_src_path = ""
 
     if trg_path.suffix != '.ply':
-        logging.info("Creating a copy of the original TARGET point cloud as PLY")
+        logging.debug("Creating a copy of the original TARGET point cloud as PLY")
         pcd_t, trg_ply_flag = load_file(trg_path)
         temp_trg_path = trg_path.parent / f"temp_{trg_path.stem}.ply"
         pcd_t.scalar_fields = ScalarFieldManager()
@@ -665,8 +641,7 @@ def feature_based_deformation_analysis(args: F2S3RunSettings):
     tile_list = sorted(list(args.tiled_data.glob("source_tile_*")))
         # glob.glob(os.path.join(os.sep.join(args.source_cloud.split(os.sep)[:-2]), 'tiled_data/source_tile_*')))
 
-    if args.verbose:
-        logging.info(f'{len(tile_list)} tiles in the first epoch. Tiles with less than 5000 points will be removed.')
+    logging.debug(f'{len(tile_list)} tiles in the first epoch. Tiles with less than 5000 points will be removed.')
 
     pcd_tiles: list[PointCloudData] = []
     tile_index_vector = []
@@ -700,7 +675,7 @@ def feature_based_deformation_analysis(args: F2S3RunSettings):
             tile_index_vector.append(np.full(len(pcd_tiles[-1]), idx))
 
             end_time = time.time()
-            logging.info(f"Whole processing of tile {tile_nr} was finished in: {end_time - start_time:.2f} s")
+            logging.info(f"Whole processing of tile {tile_nr} was finished in: {end_time - start_time:.2f}s")
 
         else:
             logging.warning(f'Target tile {tile_t} does not exist, skipping computation for tile {tile_nr}!')
@@ -727,10 +702,10 @@ def feature_based_deformation_analysis(args: F2S3RunSettings):
     # Clear the temporary point cloud file after tiling
     if not trg_ply_flag:
         os.remove(str(temp_trg_path))
-        logging.info("Temporary TARGET point cloud removed.")
+        logging.debug("Temporary TARGET point cloud removed.")
 
     if not src_ply_flag:
         os.remove(str(temp_src_path))
-        logging.info("Temporary SOURCE point cloud removed.")
+        logging.debug("Temporary SOURCE point cloud removed.")
 
     return merged_pcd

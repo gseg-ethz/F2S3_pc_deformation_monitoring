@@ -60,8 +60,8 @@ if __name__ == '__main__':
 
     run_settings = F2S3RunSettings(
         results_dir = Path("/home/jonal/projects/F2S3/data/test"),
-        source_cloud = Path("/home/jonal/projects/F2S3/data/BGC_TransCanada/2022_BGC_Patch.ply"),
-        target_cloud = Path("/home/jonal/projects/F2S3/data/BGC_TransCanada/2024_BGC_Patch.ply"),
+        source_cloud = Path("/home/jonal/projects/F2S3/data/Mattertal/2019_Ground_aligned_clipped.laz"),
+        target_cloud = Path("/home/jonal/projects/F2S3/data/Mattertal/2021_Ground_aligned_clipped.laz"),
         start_from_tiled_data= False,
         refine_results = False,
     )
