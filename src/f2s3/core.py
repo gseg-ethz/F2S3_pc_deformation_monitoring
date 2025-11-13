@@ -33,10 +33,9 @@ from typing import Optional, Literal
 
 from tqdm import tqdm
 from sklearn.neighbors import NearestNeighbors
-from scipy.spatial import KDTree
 from pydantic import (
     BaseModel, DirectoryPath, FilePath, PositiveInt, NonNegativeFloat, NewPath, model_validator, computed_field, Field,
-    ConfigDict, field_validator
+    ConfigDict
 )
 
 from torch.utils.data import DataLoader
@@ -67,29 +66,44 @@ class CorrespondenceSearchSettings(BaseModel):
 
 class F2S3RunSettings(BaseModel):
     model_config = ConfigDict(validate_assignment=True)
-    base_dir: DirectoryPath | NewPath = Field(alias='results_dir')
+
+    # Point cloud files - Can only be None when a tiled_data path is provided
     source_cloud: Optional[FilePath] = None
     target_cloud: Optional[FilePath] = None
+
+    # Base folder where everything will be saved
+    base_dir: DirectoryPath | NewPath = Field(alias='results_dir')
+
+    # Tiling parameters
     start_from_tiled_data: bool = False
     tiled_data: Optional[DirectoryPath] = None
     max_points_per_tile: PositiveInt = 1000000
     min_points_per_tile: PositiveInt = 10000
+    overlap_tiles: float = 0.0
+
+    # Supervoxel + Feature Extraction parameters
     batch_size: PositiveInt = 2000
     voxel_grid_size: NonNegativeFloat = 0.0
     max_disp_magnitude: NonNegativeFloat = 0.0
     minimum_points: PositiveInt = 10
     n_normals: PositiveInt = 30 # Numbers of points used to compute normal vectors in the supervoxels
+
+    # Correspondence search parameters
+    correspondences: CorrespondenceSearchSettings = Field(default_factory=CorrespondenceSearchSettings)
+
+    # Post processing parameters
     refine_results: bool = False
     filter_median_magnitude: bool = False
     magnitude_multiplier: float = 30.0
-    overlap_tiles: float = 0.0
     fill_gaps_c2c: bool = False
+
+    # Output parameters
     save_interim: bool = False
     save_tiles: bool = False
     verbose: bool = False
     num_workers: int = 6
-    apply_filters: bool = False
-    correspondences: CorrespondenceSearchSettings = Field(default_factory=CorrespondenceSearchSettings)
+
+
 
     def feature_radius(self, median_resolution) -> float:
         return float(np.sqrt(3) * (self.minimum_points * median_resolution))
@@ -109,7 +123,6 @@ class F2S3RunSettings(BaseModel):
             if self.tiled_data is None:
                 raise NotADirectoryError(f"Tiled data path incorrect: {self.tiled_data}!")
 
-        # TODO this needs fixing
         # Check and set the results path
         if self.base_dir == Path(""):
             self.__dict__['base_dir'] = self.tiled_data.parent if self.start_from_tiled_data else self.source_cloud.parent
@@ -573,15 +586,12 @@ class F2S3:
         return self.feature_based_deformation_analysis()
 
     def compare_files(self, source: Path, target: Path) -> PointCloudData:
-        self.args.source_cloud, self.args.target_cloud = source, target
+        self.args.source_cloud = source
+        self.args.target_cloud = target
 
-        self.src_ply_path = self.create_ply_file_copy(source)
-        self.trg_ply_path = self.create_ply_file_copy(target)
-        gc.collect()
+        return self.run()
 
-        return self.feature_based_deformation_analysis()
-
-    def run_cli(self):
+    def run(self):
         self.src_ply_path = self.create_ply_file_copy(self.args.source_cloud)
         self.trg_ply_path = self.create_ply_file_copy(self.args.target_cloud)
         gc.collect()

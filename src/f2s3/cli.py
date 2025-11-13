@@ -3,8 +3,6 @@ from pathlib import Path
 
 import torch
 
-from pchandler.data_io import load_file
-
 from f2s3.core import F2S3RunSettings, F2S3
 
 def main():
@@ -41,7 +39,7 @@ def main():
     )
 
     parser.add_argument(
-        '--min_points_per_tile', action='store_true',
+        '--min_points_per_tile', type=int, default=argparse.SUPPRESS,
         help='Minimum number of points per each tile.'
     )
 
@@ -116,39 +114,37 @@ def main():
         help='Number of points used to compute normal vectors in the supervoxels'
         )
 
-
-
     args = parser.parse_args()
 
     run_settings = F2S3RunSettings(**vars(args))
 
     with torch.no_grad():
         obj = F2S3(run_settings)
-        obj.run_cli()
+        obj.run()
 
 
 if __name__ == '__main__':
-    # main()
-    cfg = F2S3RunSettings(
-        results_dir=Path("/home/jonal/projects/F2S3/data/pchandler_base"),
-        source_cloud=Path("/home/jonal/projects/F2S3/data/Mattertal/2019_Ground_aligned_clipped.laz"),
-        target_cloud=Path("/home/jonal/projects/F2S3/data/Mattertal/2021_Ground_aligned_clipped.laz"),
-        start_from_tiled_data=False
-    )
-    cfg.refine_results = True
-    cfg.save_interim = True
-    cfg.save_tiles = True
-    cfg.filter_median_magnitude = True
-    cfg.max_disp_magnitude = 1.0
-    cfg.fill_gaps_c2c = True
-    cfg.verbose = True
-
-    algorithm = F2S3(cfg)
-    src_pcd = load_file(cfg.source_cloud)
-    target_pcd = load_file(cfg.target_cloud)
-
-    try:
-        algorithm.compare_pcds(src_pcd, target_pcd)
-    except Exception as e:
-        print(e.with_traceback())
+    main()
+    # cfg = F2S3RunSettings(
+    #     results_dir=Path("/home/jonal/projects/F2S3/data/pchandler_base"),
+    #     source_cloud=Path("/home/jonal/projects/F2S3/data/Mattertal/2019_Ground_aligned_clipped.laz"),
+    #     target_cloud=Path("/home/jonal/projects/F2S3/data/Mattertal/2021_Ground_aligned_clipped.laz"),
+    #     start_from_tiled_data=False
+    # )
+    # cfg.refine_results = True
+    # cfg.save_interim = True
+    # cfg.save_tiles = True
+    # cfg.filter_median_magnitude = True
+    # cfg.max_disp_magnitude = 1.0
+    # cfg.fill_gaps_c2c = True
+    # cfg.verbose = True
+    #
+    # algorithm = F2S3(cfg)
+    # src_pcd = load_file(cfg.source_cloud)
+    # target_pcd = load_file(cfg.target_cloud)
+    #
+    # try:
+    #     algorithm.compare_pcds(src_pcd, target_pcd)
+    # except Exception as e:
+    #     print(e.with_traceback())
 
