@@ -1,7 +1,8 @@
 import torch
 import numpy as np
-import logging
 from sklearn.neighbors import NearestNeighbors
+from scipy.spatial import KDTree
+from pchandler import PointCloudData
 
 def transform_point_cloud(x1, R, t):
     """
@@ -134,3 +135,21 @@ def compute_c2c(source_pc, target_pc):
     c2c_dist, _ = neigh.kneighbors(source_pc, n_neighbors=1, return_distance=True)
 
     return c2c_dist
+
+
+def get_original_point_indexes(original_pcd: PointCloudData, derived_pcd: PointCloudData, upper_bound = 0.1):
+    """Get indexes of the points in the original point cloud that are present
+
+    Args:
+        original_pcd:
+        derived_pcd:
+
+    Returns:
+
+    """
+    kdt = KDTree(original_pcd.xyz + original_pcd.numerical_optimization_shift)
+
+    # Distance upper bound can improve search speed but setting less than 0.0001 can have numerical issues
+    _, indices = kdt.query(derived_pcd.xyz, k=1, distance_upper_bound=upper_bound)
+    return indices
+

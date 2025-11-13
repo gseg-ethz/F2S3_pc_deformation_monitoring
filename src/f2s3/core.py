@@ -16,142 +16,176 @@ The pipeline is described in more detail in [1].
 Author: Zan Gojcic
 """
 
-import os
+
 from importlib import resources
-import glob
+from tempfile import TemporaryDirectory
 import numpy as np
 import logging
 import coloredlogs
 import open3d as o3d
 import torch
 import time
+import json
 import hnswlib
 import gc
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
-import re
+from typing import Optional, Literal
 
-from plotly.graph_objs.icicle import Pathbar
 from tqdm import tqdm
 from sklearn.neighbors import NearestNeighbors
 from scipy.spatial import KDTree
+from pydantic import (
+    BaseModel, DirectoryPath, FilePath, PositiveInt, NonNegativeFloat, NewPath, model_validator, computed_field, Field,
+    ConfigDict, field_validator
+)
 
 from torch.utils.data import DataLoader
 
 from pchandler import PointCloudData
 from pchandler.scalar_fields import ScalarFieldManager
-from pchandler.data_io.core import SUPPORTED_TYPES as SUPPORTED_FILE_TYPES
-from pchandler.data_io import las, csv, e57, ply
+from pchandler.scalar_fields.scalar_fields import ScalarFieldBoolean
+from pchandler.data_io import ply, load_file
+from pchandler.constants import COMMON_FIELD_BASES
 
 from .descriptor_model import PointNetFeature
 from .filtering_model import FilteringNetwork
 from .data import FeatureExtractionDataset
-from .utils import transform_point_cloud, compute_c2c
+from .utils import transform_point_cloud, compute_c2c, get_original_point_indexes
 
 from pc_tiling import pc_tiling
 from supervoxel import supervoxel
 
 
-def load_file(file_path: Path) -> tuple[PointCloudData, bool]:
-    ply_flag = False
-    data_loaders = {
-        '.las': las.LasHandler.load,
-        '.laz': las.LasHandler.load,
-        '.txt': csv.CsvHandler.load,
-        '.asc': csv.CsvHandler.load,
-        '.csv': csv.CsvHandler.load,
-        '.pts': csv.CsvHandler.load,
-        '.e57': e57.E57Handler.load,
-        '.ply': ply.PlyHandler.load,
-    }
 
-    if not file_path.is_file():
-        raise FileNotFoundError(f"File {file_path} not found")
+class CorrespondenceSearchSettings(BaseModel):
+    model_config = ConfigDict(validate_assignment=True)
+    M: int = 12
+    efC: int = 300
+    efS: int = 300
+    num_threads: int = 16
+    space: Literal['l2', 'cosine', 'ip'] = 'l2'
 
-    if file_path.suffix not in SUPPORTED_FILE_TYPES:
-        raise ValueError(f"File suffix {file_path.suffix} is not supported. It should be in {SUPPORTED_FILE_TYPES}")
-
-    if file_path.suffix != '.ply':
-        ply_flag = False
-
-    return data_loaders[file_path.suffix](file_path), ply_flag
-
-@dataclass
-class F2S3RunSettings:
-    results_dir: Path
-    source_cloud: Optional[Path] = None
-    target_cloud: Optional[Path] = None
+class F2S3RunSettings(BaseModel):
+    model_config = ConfigDict(validate_assignment=True)
+    base_dir: DirectoryPath | NewPath = Field(alias='results_dir')
+    source_cloud: Optional[FilePath] = None
+    target_cloud: Optional[FilePath] = None
     start_from_tiled_data: bool = False
-    tiled_data: Optional[Path] = None
-    max_points_per_tile: int = 1000000
-    batch_size: int = 2000
-    voxel_grid_size: float = 0.0
-    max_disp_magnitude: float = 0.0
-    save_interim: bool = False
-    verbose: bool = False
-    filter_median_magnitude: bool = False
+    tiled_data: Optional[DirectoryPath] = None
+    max_points_per_tile: PositiveInt = 1000000
+    min_points_per_tile: PositiveInt = 10000
+    batch_size: PositiveInt = 2000
+    voxel_grid_size: NonNegativeFloat = 0.0
+    max_disp_magnitude: NonNegativeFloat = 0.0
+    minimum_points: PositiveInt = 10
+    n_normals: PositiveInt = 30 # Numbers of points used to compute normal vectors in the supervoxels
     refine_results: bool = False
+    filter_median_magnitude: bool = False
+    magnitude_multiplier: float = 30.0
+    overlap_tiles: float = 0.0
     fill_gaps_c2c: bool = False
+    save_interim: bool = False
+    save_tiles: bool = False
+    verbose: bool = False
+    num_workers: int = 6
+    apply_filters: bool = False
+    correspondences: CorrespondenceSearchSettings = Field(default_factory=CorrespondenceSearchSettings)
 
-    def __post_init__(self):
+    def feature_radius(self, median_resolution) -> float:
+        return float(np.sqrt(3) * (self.minimum_points * median_resolution))
 
-        # Check correct path settings for input data
-        if not self.start_from_tiled_data and (self.source_cloud is None or not self.source_cloud.is_file()):
-            raise FileNotFoundError(f"Source cloud could not be found at {self.source_cloud}!")
+    def supervoxel_radius(self, median_resolution):
+        return np.max([ self.feature_radius(median_resolution), self.voxel_grid_size ])
 
-        if not self.start_from_tiled_data and (self.target_cloud is None or not self.target_cloud.is_file()):
-            raise FileNotFoundError(f"Target cloud could not be found at {self.target_cloud}!")
+    @model_validator(mode='after')
+    def check_file_paths(self):
+        if not self.start_from_tiled_data:
+            if self.source_cloud is None:
+                raise FileNotFoundError(f"Source cloud could not be found at {self.source_cloud}!")
 
-        if self.start_from_tiled_data and (self.tiled_data is None or not self.tiled_data.is_dir()):
-            raise NotADirectoryError(f"Tiled data path incorrect: {self.tiled_data}!")
-
-        # Check and set results path
-        if self.results_dir == "":
-            if self.start_from_tiled_data:
-                self.results_dir = self.tiled_data.parent
-            else:
-                self.results_dir = self.source_cloud.parent
+            if self.target_cloud is None:
+                raise FileNotFoundError(f"Target cloud could not be found at {self.target_cloud}!")
         else:
-            self.results_dir = Path(self.results_dir)
+            if self.tiled_data is None:
+                raise NotADirectoryError(f"Tiled data path incorrect: {self.tiled_data}!")
 
-        if not self.results_dir.exists():
-            self.results_dir.mkdir(parents=True)
+        # TODO this needs fixing
+        # Check and set the results path
+        if self.base_dir == Path(""):
+            self.__dict__['base_dir'] = self.tiled_data.parent if self.start_from_tiled_data else self.source_cloud.parent
 
-        # Set tiled data path in case not set (and not starting_from_tiled_data
         if self.tiled_data is None:
-            self.tiled_data = self.results_dir / "tiled_data"
-
-        if not self.tiled_data.exists():
-            self.tiled_data.mkdir(parents=True)
-
-        # Check validity of run arguments
-        if self.max_points_per_tile < 1:
-            raise ValueError("Maximum number of point per tile needs to be a positive integer!")
-
-        if self.batch_size < 1:
-            raise ValueError("Batch size needs to be a positive integer!")
-
-        if self.voxel_grid_size < 0.0:
-            raise ValueError("Voxel grid size can't be negative!")
-
-        if self.max_disp_magnitude < 0.0:
-            raise ValueError("Maximum displacement magnitude can't be negative!")
-
+            self.__dict__['tiled_data'] = self.base_dir / "tiled_data"
 
         # Prepare the logger
         logger = logging.getLogger()
+        logger.setLevel(logging.DEBUG if self.verbose else logging.INFO)
         coloredlogs.install(level='INFO' if self.verbose else 'VERBOSE', logger=logger)
-        log_formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(name)s - %(message)s')
 
-        args_save_path = self.results_dir / 'command_line_args.txt'
+        for handler in logger.handlers:
+            handler.setFormatter(
+                logging.Formatter('%(asctime)s [%(levelname)s] %(name)s - %(message)s')
+            )
 
-        # Save arguments to the dictionary
-        with open(args_save_path, 'w') as f:
-            print(self, file=f)
+        return self
 
     def __repr__(self):
         return '\n'.join([f'{field}: {getattr(self, field)}' for field in self.__dataclass_fields__])
+
+    @classmethod
+    def load_from_json(cls, file_path: str|Path):
+        data = json.load(open(file_path, 'r'))
+        return cls(**data)
+
+    def save_to_json(self, file_path: str|Path):
+        with open(file_path, 'w') as f:
+            data = json.loads(self.model_dump_json())
+            json.dump(data, f, indent=4)
+
+    @staticmethod
+    def _custom_dir(root_dir: Path, name: str) -> Path:
+        folder = root_dir / name
+        folder.mkdir(parents=True, exist_ok=True)
+        return folder
+
+    @computed_field
+    @property
+    def interim_dir(self) -> Path:
+        return self._custom_dir(self.base_dir, "interim")
+
+    @computed_field
+    @property
+    def result_dir(self) -> Path:
+        results_dir = self._custom_dir(self.base_dir, "results")
+        if self.refine_results:
+            return self._custom_dir(results_dir, "refined")
+        return results_dir
+
+    @computed_field
+    @property
+    def supervoxel_dir(self) -> Path|None:
+        if self.save_interim:
+            return self._custom_dir(self.interim_dir, "supervoxels")
+        return None
+
+    @computed_field
+    @property
+    def features_dir(self) -> Path|None:
+        if self.save_interim:
+            return self._custom_dir(self.interim_dir, "features")
+        return None
+
+    @computed_field
+    @property
+    def correspondences_dir(self) -> Path|None:
+        if self.save_interim:
+            return self._custom_dir(self.interim_dir, "correspondences")
+        return None
+
+    @computed_field
+    @property
+    def output_tiles_dir(self) -> Path:
+        return self._custom_dir(self.result_dir, "tiles")
 
 
 class PointCloudTile:
@@ -179,13 +213,20 @@ class PointCloudTile:
         """
 
         # Initialize the class settings and variables
+        self.args = args
         self.path_s = Path(path_s)
         self.path_t = Path(path_t)
         self.tile_id = tile_id
 
-        self.pcd_s, flag_s_ply = load_file(self.path_s)
-        self.pcd_t, flag_t_ply = load_file(self.path_t)
+        self.feature_extractor = feature_extractor
+        self.filtering_network = filtering_network
 
+        self.supervoxels: list = []
+        self.correspondences: np.ndarray = np.empty(0)
+
+        # Load the original source and target point clouds
+        self.pcd_s = load_file(self.path_s)
+        self.pcd_t = load_file(self.path_t)
 
         self.pcd_s_overlap = o3d.io.read_point_cloud(
             self.path_s.parent / "overlap" / (self.path_s.stem + "_overlap.ply")
@@ -194,67 +235,45 @@ class PointCloudTile:
             self.path_t.parent / "overlap" / (self.path_t.stem + "_overlap.ply")
         )
 
-        self.feature_extractor = feature_extractor
-        self.filtering_network = filtering_network
-
-        self.refine_results: bool = args.refine_results
-        self.max_disp_magnitude: float = args.max_disp_magnitude
-        self.filter_median_magnitude: bool = args.filter_median_magnitude
-        self.fill_gaps_c2c: bool = args.fill_gaps_c2c
-        self.verbose: bool = args.verbose
-        self.save_interim: bool = args.save_interim
-        self.base_save_path: Path = Path(args.results_dir)
-        self.voxel_grid_size: float = args.voxel_grid_size
-
         # Compute median resolution of the point clouds
         self.median_resolution = self._compute_resolution()
 
-        # Numbers of points used to compute the normal vectors in the supervoxel computation
-        self.n_normals: int = 30
 
     def compute_supervoxels(self):
         """
-        Computes boundary perserving supervoxels (i.e. local patches of geometrically coherent points) based on the method proposed in [2].
+        Computes boundary preserving supervoxels (i.e. local patches of geometrically coherent points) based on the method proposed in [2].
 
         [2] Lin, Y., et al.: Toward better boundary preserved supervoxel segmentation for 3D point clouds. ISPRS journal of photogrammetry and remote sensing, 2018.
         """
+        start_time = time.time()
+        self.supervoxels = []
+        supervoxel_save_path = "None"
 
-        # Approximate supervoxel radius is defined for each tile independently based on the median point cloud resolution
-        # I changes please consider that this has to be a reasonable value (i.e. size of the patch that moves as rigid body)
-
-        supervoxel_radius = np.max((np.sqrt(3) * (10 * self.median_resolution), self.voxel_grid_size,))
+        # Approximate supervoxel radius is defined for each tile independently based on the median
+        # point cloud resolution. When looking to change self.minimum_points, ("I"), please consider that this has
+        # to be a reasonable value (i.e. number of points in the supervoxel that move as rigid body)
+        radius = self.args.supervoxel_radius(self.median_resolution)
 
         logging.debug('Starting the supervoxel extraction.')
-        logging.debug(f'Supervoxel radius equals {supervoxel_radius:.2f} m.')
+        logging.debug(f'Supervoxel radius equals {radius:.2f} m.')
 
-        start_time = time.time()
+        if self.args.save_interim:
+            supervoxel_save_path = self.args.supervoxel_dir / f'supervoxel_tile_{self.tile_id}_{radius:.1f}.txt'
 
-        # If the interim results should not be saved the path has to be set to "None"
-        if not self.save_interim:
-            supervoxel_save_path = "None"
-        else:
-            base_folder = self.base_save_path  / 'supervoxels'
-            if not base_folder.exists():
-                base_folder.mkdir()
-
-            file_name = f'supervoxel_tile_{self.tile_id}_{supervoxel_radius:.1f}.txt'
-            supervoxel_save_path = base_folder / file_name
-
-        supervoxel_idx = supervoxel.computeSupervoxel(str(self.path_s),
-                                                      self.n_normals,
-                                                      supervoxel_radius,
-                                                      str(supervoxel_save_path))
+        supervoxel_idx = supervoxel.computeSupervoxel(input_file=str(self.path_s),
+                                                      k_neighbors=self.args.n_normals,
+                                                      resolution=radius,
+                                                      save_file=str(supervoxel_save_path))
 
         supervoxel_idx = np.asarray(supervoxel_idx).reshape(-1, 1)
 
         # Extract the indices of individual supervoxels
         supervoxels = np.unique(supervoxel_idx)
 
-        self.supervoxels = []
-        for idx in supervoxels:
-            sv_idx = np.where(supervoxel_idx == idx)[0]
-            if sv_idx.shape[0] > 10:
-                self.supervoxels.append(sv_idx)
+        for voxel_id in supervoxels:
+            matching_voxels_indexes = np.where(supervoxel_idx == voxel_id)[0]
+            if matching_voxels_indexes.shape[0] > self.args.minimum_points:
+                self.supervoxels.append(matching_voxels_indexes)
 
         # Only print out the required time if the verbose mode is selected
         logging.debug('Supervoxel extraction completed')
@@ -268,28 +287,25 @@ class PointCloudTile:
 
         [3] Poiesi, F., & Boscaini, D.: Distinctive 3D local deep descriptors. International Conference on Pattern Recognition (ICPR), 2020.
         """
-
-        neighborhood_radius = np.sqrt(3) * (10 * self.median_resolution)
-
-        logging.debug(
-            f"Starting the computation of local feature descriptors. Neighborhood radius: {neighborhood_radius:.3f}"
-        )
-
-        # Prepare source and target data loader.
-        # If running into the GPU memory problems reduce the number of points in a batch (default is 2000).
-        dataset_s = FeatureExtractionDataset(self.pcd_s, self.pcd_s_overlap, 1000, neighborhood_radius)
-        dataset_t = FeatureExtractionDataset(self.pcd_t, self.pcd_t_overlap, 1000, neighborhood_radius)
-
-        dataloader_s = DataLoader(dataset_s, batch_size=1, shuffle=False, num_workers=6, drop_last=False)
-        dataloader_t = DataLoader(dataset_t, batch_size=1, shuffle=False, num_workers=6, drop_last=False)
+        start_time = time.time()
 
         local_features_s = []
         local_features_t = []
+        neighborhood_radius = self.args.feature_radius(self.median_resolution)
 
-        start_time = time.time()
+        logging.debug(f"Computing local feature descriptors with neighborhood radius: {neighborhood_radius:.3f} ...")
+
+        # Prepare source and target data loader.
+        # If running into the GPU memory problems reduce the number of points in a batch (default is 2000).
+        dataset_s = FeatureExtractionDataset(self.pcd_s, self.pcd_s_overlap, self.args.batch_size, neighborhood_radius)
+        dataset_t = FeatureExtractionDataset(self.pcd_t, self.pcd_t_overlap, self.args.batch_size, neighborhood_radius)
+
+        n = self.args.num_workers
+        dataloader_s = DataLoader(dataset_s, batch_size=1, shuffle=False, num_workers=n, drop_last=False)
+        dataloader_t = DataLoader(dataset_t, batch_size=1, shuffle=False, num_workers=n, drop_last=False)
 
         # If verbose mode is selected, show the progress bar of the feature computation
-        if self.verbose:
+        if self.args.verbose:
             dataloader_s = tqdm(dataloader_s, ncols=90)
             dataloader_t = tqdm(dataloader_t, ncols=90)
 
@@ -316,17 +332,9 @@ class PointCloudTile:
         logging.debug(f'Local features were computed in {time.time() - start_time} s')
 
         # Save the feature descriptors if the interim save result mode is selected
-        if self.save_interim:
-            save_path = self.base_save_path / 'features'
-
-            if not save_path.exists():
-                save_path.mkdir(parents=True, exist_ok=True)
-
-            np.savez(
-                save_path / f'features_tile_{self.tile_id}_{np.sqrt(3) * (10 * self.median_resolution):.1f}.npz',
-                feat_s=self.local_features_s.cpu(),
-                feat_t=self.local_features_t.cpu()
-            )
+        if self.args.save_interim:
+            save_path = (self.args.features_dir / f'features_tile_{self.tile_id}_{neighborhood_radius:.1f}.npz')
+            np.savez(save_path, feat_s=self.local_features_s.cpu(), feat_t=self.local_features_t.cpu())
 
     def compute_correspondences(self):
         """
@@ -337,19 +345,20 @@ class PointCloudTile:
 
         # Paramters defining how close to the exact NN search the approximate search is. Should only be changed if there is a very good reason!
         # Increasing this values "sharpens" the NN search but also results in the longer processing time. Current values result in above 99% NN recall.
-        M = 12
-        efC = 300
-        efS = 300
+        M = self.args.correspondences.M
+        efC = self.args.correspondences.efC
+        efS = self.args.correspondences.efS
+        space = self.args.correspondences.space
 
         # Set the number of CPU threads
-        num_threads = 16
+        num_threads = self.args.correspondences.num_threads
 
         logging.debug('Starting the computation of the correspondences in feature space.')
 
         start_time = time.time()
 
         # Intitialize the library, specify the space, the type of the vector and add data points
-        p = hnswlib.Index(space='l2', dim=64)  # possible options are l2, cosine or ip
+        p = hnswlib.Index(space=space, dim=64)  # possible options are l2, cosine or ip
         p.init_index(max_elements=self.local_features_t.shape[0], ef_construction=efC, M=M)
         p.set_ef(efS)
         p.set_num_threads(num_threads)
@@ -358,7 +367,7 @@ class PointCloudTile:
         # Query the elements for themselves and measure recall:
         labels, distances = p.knn_query(self.local_features_s.cpu().numpy(), k=1)
 
-        # Save the correspondences for subsequent steps
+        # Save the correspondences for future steps
         self.correspondences = np.concatenate((
             np.array(self.pcd_s.xyz),
             np.array(self.pcd_t.xyz)[labels.reshape(-1), :]
@@ -366,14 +375,10 @@ class PointCloudTile:
 
         logging.debug(f'Correspondence estimation in the feature space completed in {time.time() - start_time:.2f} s')
 
-        # Save the correspondences ad NX2 matrix if the interim save result mode is selected
-        if self.save_interim:
-            save_path = self.base_save_path / 'correspondences'
-
-            if not save_path.exists():
-                save_path.mkdir(parents=True, exist_ok=True)
-
-            np.savez(save_path / f'correspondences_tile_{self.tile_id}.npz', corr=self.correspondences)
+        # Save the correspondences and NX2 matrix if the interim save result mode is selected
+        if self.args.save_interim:
+            save_path = self.args.correspondences_dir / f'correspondences_tile_{self.tile_id}.npz'
+            np.savez(save_path, corr=self.correspondences)
 
         gc.collect()
 
@@ -383,10 +388,9 @@ class PointCloudTile:
         inlier_idx = []
         save_coords = []
         segment_ids = []
+        supervoxel_iter = tqdm(self.supervoxels, ncols=90) if self.args.verbose else self.supervoxels
 
         logging.debug('Starting the outlier detection step')
-
-        supervoxel_iter = tqdm(self.supervoxels, ncols=90) if self.verbose else self.supervoxels
 
         # Super voxels are a vector of indices
         for i, supervoxel in enumerate(supervoxel_iter):
@@ -400,17 +404,16 @@ class PointCloudTile:
                 torch.from_numpy(supervoxel_data_scaled).cuda().unsqueeze(0).unsqueeze(0).float(),
                 torch.from_numpy(supervoxel_data).cuda().unsqueeze(0).float())
 
-            supervoxel_coords = supervoxel_data
-
-            if filtering_output['robust_estimate'] and self.refine_results:
-                # TODO - Discuss if this is even needed, it is not used anywhere
-                # supervoxel_coords[:, 3:6] = transform_point_cloud(
-                #     torch.from_numpy(supervoxel_data[:, 0:3]).cuda().float(),
-                #     filtering_output['rot_est'],
-                #     filtering_output['trans_est']).cpu().numpy()
-                idx = np.ones(supervoxel_coords.shape[0])
+            if filtering_output['robust_estimate'] and self.args.refine_results:
+                # Transform the source coordinates to the target coordinate system using the estimated transformation
+                supervoxel_data[:, 3:6] = transform_point_cloud(
+                    torch.from_numpy(supervoxel_data[:, 0:3]).cuda().float(),
+                    filtering_output['rot_est'],
+                    filtering_output['trans_est']).cpu().numpy()
+                idx = np.ones(supervoxel_data.shape[0])
 
             else:
+                # Filter out supervoxel points that are not classified as inliers
                 idx = (filtering_output['scores'].reshape(-1) > 0.99999).cpu().numpy()
 
             inlier_idx.append(idx)
@@ -421,111 +424,72 @@ class PointCloudTile:
         gc.collect()
 
         if inlier_idx:
-            inlier_idx = np.concatenate(inlier_idx, axis=0)
-            inlier_idx = np.where(inlier_idx > 0.5)[0].reshape(-1)
-
+            inlier_idx = np.concatenate(inlier_idx, axis=0).astype(np.bool_)
             save_coords = np.concatenate(save_coords, axis=0)
             segment_ids = np.concatenate(segment_ids, axis=0, dtype=np.int32)
-
 
         # Filter the outliers based on the predicted scores
         filtered_results = save_coords[inlier_idx, :]
 
         tile_pcd = PointCloudData(xyz=filtered_results[:, 0:3])
-        tile_pcd.scalar_fields.create_field('target_x', filtered_results[:, 3])
-        tile_pcd.scalar_fields.create_field('target_y', filtered_results[:, 4])
-        tile_pcd.scalar_fields.create_field('target_z', filtered_results[:, 5])
+        fields = tile_pcd.scalar_fields    # Reference to the scalar field manager for easier code management
 
-        deformation_vector = filtered_results[:, 3:6] - filtered_results[:, 0:3]    # Target minus source
-        filtered_magnitudes = np.linalg.norm(deformation_vector, axis=1)
+        # Compute the displacement vector and magnitude of the displacement vector
+        displacement_vector = filtered_results[:, 3:6] - filtered_results[:, 0:3]    # Target minus source
+        filtered_magnitudes = np.linalg.norm(displacement_vector, axis=1)
 
-        tile_pcd.scalar_fields.create_field('deformation_nx', deformation_vector[:, 0])
-        tile_pcd.scalar_fields.create_field('deformation_ny', deformation_vector[:, 1])
-        tile_pcd.scalar_fields.create_field('deformation_nz', deformation_vector[:, 2])
-        tile_pcd.scalar_fields.create_field('magnitude', np.linalg.norm(deformation_vector, axis=1))
-        tile_pcd.scalar_fields.create_field('supervoxel_ids', segment_ids[inlier_idx])
+        for i, c in enumerate('xyz', 0):    # Add the scalar fields
+            fields.create_field(f'target_{c}', filtered_results[:, i+3])
+            fields.create_field(f'deformation_n{c}', filtered_results[:, i])    # Vector from src to trg
+
+        fields.create_field('magnitude', np.linalg.norm(displacement_vector, axis=1))
+
+        fields.create_field('supervoxel_ids', segment_ids[inlier_idx])
 
         logging.debug(f'{filtered_results.shape[0]} points out of {save_coords.shape[0]} were classified as inlier')
 
-        save_path: Path = self.base_save_path / 'output'
-
-        if not save_path.is_dir():
-            save_path.mkdir(parents=True, exist_ok=True)
-
-        if self.refine_results:
-            save_path_output = save_path / 'refined_results'
-        else:
-            save_path_output = save_path / 'results'
-
-        if not save_path_output.is_dir():
-            save_path_output.mkdir(parents=True, exist_ok=True)
-
         # If maximum magnitude parameter is set, filter all points with larger magnitude estimates
-        if self.max_disp_magnitude > 0:
-            max_magnitude_idx = np.where(tile_pcd.scalar_fields['magnitude'] < self.max_disp_magnitude)[0].reshape(-1)
+        if self.args.max_disp_magnitude > 0:
+            max_magnitude_idx = fields['magnitude'] < self.args.max_disp_magnitude
+            fields.add_field(ScalarFieldBoolean(max_magnitude_idx, name='max_displacement_filter'))
 
-            tile_pcd.reduce(max_magnitude_idx)
-            inlier_idx = inlier_idx[max_magnitude_idx].reshape(-1)
+            logging.debug(f'Filtered {np.sum(~max_magnitude_idx)} points with a magnitude larger than {self.args.max_disp_magnitude}m')
+            logging.debug(f'{len(tile_pcd) - np.sum(~max_magnitude_idx)} points remaining')
 
         # If filtered by magnitude is selected also filter very large motion inside a tile
-        if self.filter_median_magnitude:
+        if self.args.filter_median_magnitude:
             logging.debug('Filtering the displacement vectors based on the mean magnitude of the displacement')
 
-            # Compute the median magnitude
-            median_mag = float(np.median(tile_pcd.scalar_fields['magnitude']))
+            median_magnitude = np.median(fields['magnitude'])
+            threshold = float(median_magnitude) * self.args.magnitude_multiplier
 
-            logging.debug(f'Median magnitude {median_mag}, all displacements above {30 * median_mag} m will be removed')
+            logging.debug(f'Median magnitude:{median_magnitude}, all displacements above {threshold}m will be removed')
 
-            mag_inlier = np.where(tile_pcd.scalar_fields['magnitude'] < 30 * median_mag)[0]
-            tile_pcd.reduce(mag_inlier)
-
-            save_path_filtered_mag = save_path / 'filtered_by_magnitude'
-
-            if not save_path_filtered_mag.exists():
-                save_path_filtered_mag.mkdir(parents=True, exist_ok=True)
-
-            # ply.PlyHandler.save(tile_pcd, save_path_filtered_mag / f"displacement_tile_{self.tile_id}.ply")
-
-            np.savetxt(
-                save_path_filtered_mag / f'displacement_median_magnitude_tile_{self.tile_id}.txt',
-                np.concatenate((filtered_results, filtered_magnitudes.reshape(-1, 1)), axis=1)
+            mag_inlier_sf = fields['magnitude'] < threshold
+            fields.add_field(
+                ScalarFieldBoolean(mag_inlier_sf, name='median_magnitude_inliers')
             )
 
-            # If selected combine the inliers estimated by out method with the C2C estimates for the outliers
-            if self.fill_gaps_c2c:
-                c2c_displacements = compute_c2c(save_coords[:, 0:3], np.asarray(self.pcd_t.points)).reshape(-1)
+        # If selected combine the inliers estimated by our method with the C2C estimates for the outliers
+        if self.args.fill_gaps_c2c and (self.args.filter_median_magnitude or self.args.max_disp_magnitude > 0):
+            filter_index = np.ones(len(tile_pcd), dtype=np.bool_)
 
-                save_path_c2c = save_path / 'combined_with_c2c'
+            if self.args.filter_median_magnitude:
+                filter_index *= fields['median_magnitude_inliers']
 
-                if not save_path_c2c.exists():
-                    save_path_c2c.mkdir(parents=True, exist_ok=True)
+            if self.args.max_disp_magnitude > 0:
+                filter_index *= fields['max_displacement_filter']
 
-                c2c_displacements[inlier_idx[mag_inlier]] = filtered_magnitudes
-
-                np.savetxt(
-                    save_path_c2c / f'displacement_magnitude_tile_{self.tile_id}.txt',
-                    np.concatenate((save_coords[:, 0:3], c2c_displacements.reshape(-1, 1)), axis=1)
-                )
-
-
-        # If selected combine the inliers estimated by out method with the C2C estimates for the outliers
-        elif self.fill_gaps_c2c:
-            c2c_displacements = compute_c2c(save_coords[:, 0:3], np.asarray(self.pcd_t.points)).reshape(-1)
-
-            save_path_c2c = save_path / 'combined_with_c2c'
-            if not save_path_c2c.exists():
-                save_path_c2c.mkdir(parents=True, exist_ok=True)
-
-            c2c_displacements[inlier_idx] = filtered_magnitudes
-
-            np.savetxt(
-                save_path_c2c / f'displacement_magnitude_tile_{self.tile_id}.txt',
-                np.concatenate((save_coords[:, 0:3], c2c_displacements.reshape(-1, 1)), axis=1)
-            )
+            c2c_displacements = compute_c2c(
+                save_coords[:, 0:3], np.asarray(self.pcd_t.xyz)
+            ).reshape(-1)[inlier_idx]
+            c2c_displacements[filter_index] = filtered_magnitudes[filter_index]
+            fields.create_field(f'c2c_filled_gaps', c2c_displacements)
 
         logging.info(f'Outlier detection step completed in {time.time() - start_time:.2f} s')
 
-        ply.PlyHandler.save(tile_pcd, save_path_output / f"displacement_tile_{self.tile_id}.ply")
+        if self.args.save_tiles:
+            ply.PlyHandler.save(tile_pcd, self.args.output_tiles_dir / f"displacement_tile_{self.tile_id}.ply")
 
         return tile_pcd
 
@@ -562,150 +526,198 @@ class PointCloudTile:
 
         return pc_resolution
 
+class F2S3:
+    FEATURE_MODEL_NAME = 'f2s3.pretrained_models.feature_descriptor'
+    FEATURE_MODEL_WEIGHTS = 'model_best.pth'
 
-def feature_based_deformation_analysis(args: F2S3RunSettings):
-    """
-    Main function of this scripts. Starts by tiling the point clouds and then loops over the individual tiles and performs the deformation analysis.
+    OUTLIER_MODEL_NAME = 'f2s3.pretrained_models.outlier_filtering'
+    OUTLIER_MODEL_WEIGHTS = 'model_best.pt'
 
-    Args:
-        args (F2S3RunSettings): command line parameters
+    # TODO implement unpacking method
+    def __init__(self, args: F2S3RunSettings):
+        self.args = args
+        self.feature_descriptor = PointNetFeature()
+        self.filtering_network = FilteringNetwork()
 
-    """
+        self.load_feature_descriptor_weights()
+        self.load_filter_network_weights()
 
-    start_time_whole_analysis = time.time()
+        self.temp_dir = TemporaryDirectory()
 
-    with resources.path('f2s3.pretrained_models.feature_descriptor', 'model_best.pth') as f_m:
-        f_m = Path(f_m)
-    with resources.path('f2s3.pretrained_models.outlier_filtering', 'model_best.pt') as o_m:
-        o_m = Path(o_m)
+        self.raw_path = None
 
-    # Load the feature descriptor model
-    feature_descriptor = PointNetFeature()
-    feature_descriptor.load_state_dict(torch.load(f_m))
-    feature_descriptor.cuda()
-    feature_descriptor.eval()
+        self.src_ply_path = None
+        self.trg_ply_path = None
 
-    filtering_network = FilteringNetwork()
-    filtering_network.load_state_dict(torch.load(o_m))
-    filtering_network.cuda()
-    filtering_network.eval()
+    def load_feature_descriptor_weights(self):
+        with resources.path(F2S3.FEATURE_MODEL_NAME, F2S3.FEATURE_MODEL_WEIGHTS) as f_m:
+            f_m = Path(f_m)
 
-    src_path = Path(args.source_cloud)
-    trg_path = Path(args.target_cloud)
+        self.feature_descriptor.load_state_dict(torch.load(f_m))
+        self.feature_descriptor.cuda()
+        self.feature_descriptor.eval()
 
-    # TODO use tempfile library
-    if src_path.suffix != '.ply':
-        logging.debug("Creating a copy of the original SOURCE point cloud as PLY")
-        pcd_s, src_ply_flag = load_file(src_path)
-        pcd_s.scalar_fields = ScalarFieldManager()
-        temp_src_path = src_path.parent / f"temp_{src_path.stem}.ply"
-        ply.PlyHandler.save(pcd_s, temp_src_path)
-    else:
-        src_ply_flag = True
-        temp_src_path = ""
+    def load_filter_network_weights(self):
+        with resources.path(F2S3.OUTLIER_MODEL_NAME, F2S3.OUTLIER_MODEL_WEIGHTS) as o_m:
+            o_m = Path(o_m)
 
-    if trg_path.suffix != '.ply':
-        logging.debug("Creating a copy of the original TARGET point cloud as PLY")
-        pcd_t, trg_ply_flag = load_file(trg_path)
-        temp_trg_path = trg_path.parent / f"temp_{trg_path.stem}.ply"
-        pcd_t.scalar_fields = ScalarFieldManager()
-        ply.PlyHandler.save(pcd_t, temp_trg_path)
-    else:
-        trg_ply_flag = True
-        temp_trg_path = ""
+        self.filtering_network.load_state_dict(torch.load(o_m))
+        self.filtering_network.cuda()
+        self.filtering_network.eval()
 
-    # Tiles are always created as PLY - Non PLY files should be caught and converted here
-    if not args.start_from_tiled_data:
-        # Resave point clouds with PCL (this makes subsequent steps much faster)
-        logging.info('Starting the resave and tiling of the original point clouds.')
-        # pc_tiling.resave_point_cloud(args.source_cloud,
-        #                              args.target_cloud,
-        #                              args.verbose)
+    def compare_pcds(self, source: PointCloudData, target: PointCloudData) -> PointCloudData:
+        self.src_ply_path = self.create_temp_files(source, 'source')
+        self.trg_ply_path = self.create_temp_files(target, 'target')
+        gc.collect()
 
-        # Tile the point cloud into smaller tiles that can be processed on a standalone computer
-        pc_tiling.tile_point_clouds(str(src_path if src_ply_flag else temp_src_path),
-                                    str(trg_path if trg_ply_flag else temp_trg_path),
-                                    str(args.tiled_data),
-                                    args.max_points_per_tile,
-                                    10000,
-                                    bool(args.voxel_grid_size),
-                                    args.voxel_grid_size,
-                                    0.0,
-                                    -1,
-                                    args.verbose)
+        return self.feature_based_deformation_analysis()
+
+    def compare_files(self, source: Path, target: Path) -> PointCloudData:
+        self.args.source_cloud, self.args.target_cloud = source, target
+
+        self.src_ply_path = self.create_ply_file_copy(source)
+        self.trg_ply_path = self.create_ply_file_copy(target)
+        gc.collect()
+
+        return self.feature_based_deformation_analysis()
+
+    def run_cli(self):
+        self.src_ply_path = self.create_ply_file_copy(self.args.source_cloud)
+        self.trg_ply_path = self.create_ply_file_copy(self.args.target_cloud)
+        gc.collect()
+
+        return self.feature_based_deformation_analysis()
+
+    def create_input_pcd_tiles(self):
+        if not self.args.start_from_tiled_data:
+            self.args.tiled_data.mkdir(parents=True, exist_ok=True)
+            # Resave point clouds with PCL (this makes subsequent steps much faster)
+            logging.info('Starting the resave and tiling of the original point clouds.')
+            # pc_tiling.resave_point_cloud(args.source_cloud,
+            #                              args.target_cloud,
+            #                              args.verbose)
+
+            # Tile the point cloud into smaller tiles that can be processed on a standalone computer
+            pc_tiling.tile_point_clouds(str(self.src_ply_path),
+                                        str(self.trg_ply_path),
+                                        str(self.args.tiled_data),
+                                        self.args.max_points_per_tile,
+                                        self.args.min_points_per_tile,
+                                        bool(self.args.voxel_grid_size),
+                                        self.args.voxel_grid_size,
+                                        self.args.overlap_tiles,
+                                        -1,
+                                        self.args.verbose)
+
+    def feature_based_deformation_analysis(self, config_name: str = "config") -> PointCloudData|None:
+        """
+        Main function of this scripts. Starts by tiling the point clouds and then loops over the individual tiles and performs the deformation analysis.
+        """
+        with torch.no_grad():
+            self.args.base_dir.mkdir(parents=True, exist_ok=True)
+            self.args.save_to_json(self.args.base_dir / f"{config_name}.json")
+            start_time_whole_analysis = time.time()
+
+            # Step 0 - Tile data to enable GPU processing
+            self.create_input_pcd_tiles()
+            tile_list = sorted(list(self.args.tiled_data.glob("source_tile_*")))
+
+            # Loop over the tiles and perform the deformation analysis
+            logging.info(f'Starting deformation analysis on tiles found at {self.args.tiled_data}.')
+            logging.debug(f'{len(tile_list)} tiles in the first epoch. Tiles with less than 5000 points will be removed.')
+
+            pcd_tiles: list[PointCloudData] = []
+            tile_index_vector = []
+            merged_pcd: PointCloudData | None = None
+
+            for idx, tile_s in enumerate(tile_list):
+                logging.info('----------------------------------------------------------------------')
+                logging.info(f'Processing tile {idx + 1}/{len(tile_list)}')
+
+                tile_name = tile_s.stem.split("_")[-1]
+                tile_t = self.args.tiled_data / f"target_tile_{tile_name}.ply"
+
+                if tile_t.exists():
+                    # Step 1 - Get point cloud tile data
+                    deformation_data = PointCloudTile(tile_s, tile_t, tile_name, self.feature_descriptor, self.filtering_network, self.args)
+
+                    start_time = time.time()
+
+                    # Step 2 - Compute local features
+                    deformation_data.compute_local_features()
+
+                    # Step 3 - Compute supervoxels
+                    deformation_data.compute_supervoxels()
+
+                    # Step 4 - Compute correspondences
+                    deformation_data.compute_correspondences()
+
+                    # Step 5 - Filter correspondences
+                    pcd_tiles.append( deformation_data.filter_correspondences() )
+
+                    # Tracks the tile index as a scalar field
+                    tile_index_vector.append( np.full(len(pcd_tiles[-1]), idx) )
+
+                    logging.info(f"Whole processing of tile {tile_name} was finished in: {time.time() - start_time:.2f}s")
+
+                else:
+                    logging.warning(f'Target tile {tile_t} does not exist, skipping computation for tile {tile_name}!')
+
+            if len(pcd_tiles) > 0:
+                tile_index_vector = np.concatenate(tile_index_vector, dtype=np.int32)
+                merged_pcd = self.merge_tiles(pcd_tiles, tile_index_vector)
+
+            logging.info(f"{'-'*40}\n"
+                         f"Deformation analysis completed. {len(pcd_tiles)} point cloud tiles analysed in: "
+                         f"{(time.time() - start_time_whole_analysis) / 3600:.2f} hours.\n"
+                         f"{'-'*40}")
+
+            self.temp_dir.cleanup()
+
+            return merged_pcd
+
+    def merge_tiles(self, pcds: list[PointCloudData], tile_indexes: np.ndarray):
+        merged_pcd = PointCloudData.merge(*pcds)
+        merged_pcd.scalar_fields.create_field("tile_idx", tile_indexes)
+
+        pcd_source = load_file(self.args.source_cloud)
+        indices = get_original_point_indexes(pcd_source, merged_pcd)
+
+        for name, value in pcd_source.scalar_fields.items():
+            # TODO check the reason because of duplicates - overlap regions?
+            if name in COMMON_FIELD_BASES:
+                if value.ndim == 2:
+                    setattr(merged_pcd, name, value.arr[indices, :])
+                else:
+                    setattr(merged_pcd, name, value.arr[indices])
+            else:
+                merged_pcd.scalar_fields.create_field(name, value.arr[indices])
+
+        ply.PlyHandler.save(merged_pcd, self.args.result_dir / "deformation_result.ply")
+
+        return merged_pcd
+
+    def create_ply_file_copy(self, pcd_path: Path) -> Path:
+        """Creates a copy of the point cloud as PLY due to limitations of the PCL library."""
+        if not pcd_path.suffix == '.ply':
+            logging.debug(f"Creating a copy of {pcd_path} point cloud as PLY")
+
+            pcd = load_file(pcd_path)
+            temp_path = Path(self.temp_dir.name) / f"temp_{pcd_path.stem}.ply"
+            self._save_xyz_ply(pcd, temp_path)
+
+            return temp_path
+        return pcd_path
+
+    @staticmethod
+    def _save_xyz_ply(pcd: PointCloudData, path: Path):
+        pcd.scalar_fields = ScalarFieldManager()
+        ply.PlyHandler.save(pcd, path)
+
+    def create_temp_files(self, pcd: PointCloudData, name: str):
+        """Create temporary files for the point cloud tiling."""
+        temp_path = Path(self.temp_dir.name) / f"temp_{name}.ply"
+        self._save_xyz_ply(pcd, temp_path)
+        return temp_path
 
 
-    # Loop over the tiles and perform the deformation analysis
-    logging.info(f'Starting deformation analysis on tiles found at {args.tiled_data}.')
-
-    tile_list = sorted(list(args.tiled_data.glob("source_tile_*")))
-        # glob.glob(os.path.join(os.sep.join(args.source_cloud.split(os.sep)[:-2]), 'tiled_data/source_tile_*')))
-
-    logging.debug(f'{len(tile_list)} tiles in the first epoch. Tiles with less than 5000 points will be removed.')
-
-    pcd_tiles: list[PointCloudData] = []
-    tile_index_vector = []
-
-    for idx, tile_s in enumerate(tile_list):
-        logging.info('----------------------------------------------------------------------')
-        logging.info(f'Processing tile {idx + 1}/{len(tile_list)}')
-
-        tile_nr = tile_s.stem.split("_")[-1]
-
-        tile_t = args.tiled_data / f"target_tile_{tile_nr}.ply"
-
-        if tile_t.exists():
-            deformation_data = PointCloudTile(tile_s, tile_t, tile_nr, feature_descriptor, filtering_network, args)
-
-            start_time = time.time()
-
-            deformation_data.compute_local_features()
-
-            if not src_ply_flag:
-                deformation_data.path_s = temp_src_path
-
-            deformation_data.compute_supervoxels()
-
-            if not src_ply_flag:
-                deformation_data.path_s = src_path
-
-            deformation_data.compute_correspondences()
-
-            pcd_tiles.append(deformation_data.filter_correspondences())
-            tile_index_vector.append(np.full(len(pcd_tiles[-1]), idx))
-
-            end_time = time.time()
-            logging.info(f"Whole processing of tile {tile_nr} was finished in: {end_time - start_time:.2f}s")
-
-        else:
-            logging.warning(f'Target tile {tile_t} does not exist, skipping computation for tile {tile_nr}!')
-
-    tile_index_vector = np.concatenate(tile_index_vector, dtype=np.int32)
-
-    merged_pcd = PointCloudData.merge(*pcd_tiles)
-    merged_pcd.scalar_fields.create_field("tile_idx", tile_index_vector)
-
-    pcd_source = ply.PlyHandler.load(src_path)
-    kdt = KDTree(pcd_source.xyz)
-    _, indices = kdt.query(merged_pcd.xyz, k=1, distance_upper_bound=0.001)
-
-    for name, value in pcd_source.scalar_fields.fields.items():
-        merged_pcd.scalar_fields.create_field(name, value[indices])
-
-    ply.PlyHandler.save(merged_pcd, deformation_data.base_save_path / "output" / "merged_tiles.ply")
-
-    logging.info('----------------------------------------------------------------------')
-    logging.info(f"Deformation analysis completed. {len(tile_list)} point cloud tiles were analysed in : "
-                 f"{(time.time() - start_time_whole_analysis) / 3600:.2f} hours.")
-    logging.info('----------------------------------------------------------------------')
-
-    # Clear the temporary point cloud file after tiling
-    if not trg_ply_flag:
-        os.remove(str(temp_trg_path))
-        logging.debug("Temporary TARGET point cloud removed.")
-
-    if not src_ply_flag:
-        os.remove(str(temp_src_path))
-        logging.debug("Temporary SOURCE point cloud removed.")
-
-    return merged_pcd
