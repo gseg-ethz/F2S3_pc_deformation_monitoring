@@ -3,7 +3,9 @@ from pathlib import Path
 
 import torch
 
-from f2s3.core import F2S3RunSettings, F2S3
+from f2s3.core import F2S3
+from f2s3.config import F2S3Config
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -116,7 +118,7 @@ def main():
 
     args = parser.parse_args()
 
-    run_settings = F2S3RunSettings(**vars(args))
+    run_settings = F2S3Config(**vars(args))
 
     with torch.no_grad():
         obj = F2S3(run_settings)

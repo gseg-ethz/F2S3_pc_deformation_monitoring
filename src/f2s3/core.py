@@ -21,22 +21,15 @@ from importlib import resources
 from tempfile import TemporaryDirectory
 import numpy as np
 import logging
-import coloredlogs
 import open3d as o3d
 import torch
 import time
-import json
 import hnswlib
 import gc
 from pathlib import Path
-from typing import Optional, Literal
 
 from tqdm import tqdm
 from sklearn.neighbors import NearestNeighbors
-from pydantic import (
-    BaseModel, DirectoryPath, FilePath, PositiveInt, NonNegativeFloat, NewPath, model_validator, computed_field, Field,
-    ConfigDict
-)
 
 from torch.utils.data import DataLoader
 
@@ -46,6 +39,7 @@ from pchandler.scalar_fields.scalar_fields import ScalarFieldBoolean
 from pchandler.data_io import ply, load_file
 from pchandler.constants import COMMON_FIELD_BASES
 
+from .config import F2S3Config
 from .descriptor_model import PointNetFeature
 from .filtering_model import FilteringNetwork
 from .data import FeatureExtractionDataset
@@ -53,152 +47,6 @@ from .utils import transform_point_cloud, compute_c2c, get_original_point_indexe
 
 from pc_tiling import pc_tiling
 from supervoxel import supervoxel
-
-
-
-class CorrespondenceSearchSettings(BaseModel):
-    model_config = ConfigDict(validate_assignment=True)
-    M: int = 12
-    efC: int = 300
-    efS: int = 300
-    num_threads: int = 16
-    space: Literal['l2', 'cosine', 'ip'] = 'l2'
-
-class F2S3RunSettings(BaseModel):
-    model_config = ConfigDict(validate_assignment=True)
-
-    # Point cloud files - Can only be None when a tiled_data path is provided
-    source_cloud: Optional[FilePath] = None
-    target_cloud: Optional[FilePath] = None
-
-    # Base folder where everything will be saved
-    base_dir: DirectoryPath | NewPath = Field(alias='results_dir')
-
-    # Tiling parameters
-    start_from_tiled_data: bool = False
-    tiled_data: Optional[DirectoryPath] = None
-    max_points_per_tile: PositiveInt = 1000000
-    min_points_per_tile: PositiveInt = 10000
-    overlap_tiles: float = 0.0
-
-    # Supervoxel + Feature Extraction parameters
-    batch_size: PositiveInt = 2000
-    voxel_grid_size: NonNegativeFloat = 0.0
-    max_disp_magnitude: NonNegativeFloat = 0.0
-    minimum_points: PositiveInt = 10
-    n_normals: PositiveInt = 30 # Numbers of points used to compute normal vectors in the supervoxels
-
-    # Correspondence search parameters
-    correspondences: CorrespondenceSearchSettings = Field(default_factory=CorrespondenceSearchSettings)
-
-    # Post processing parameters
-    refine_results: bool = False
-    filter_median_magnitude: bool = False
-    magnitude_multiplier: float = 30.0
-    fill_gaps_c2c: bool = False
-
-    # Output parameters
-    save_interim: bool = False
-    save_tiles: bool = False
-    verbose: bool = False
-    num_workers: int = 6
-
-
-
-    def feature_radius(self, median_resolution) -> float:
-        return float(np.sqrt(3) * (self.minimum_points * median_resolution))
-
-    def supervoxel_radius(self, median_resolution):
-        return np.max([ self.feature_radius(median_resolution), self.voxel_grid_size ])
-
-    @model_validator(mode='after')
-    def check_file_paths(self):
-        if not self.start_from_tiled_data:
-            if self.source_cloud is None:
-                raise FileNotFoundError(f"Source cloud could not be found at {self.source_cloud}!")
-
-            if self.target_cloud is None:
-                raise FileNotFoundError(f"Target cloud could not be found at {self.target_cloud}!")
-        else:
-            if self.tiled_data is None:
-                raise NotADirectoryError(f"Tiled data path incorrect: {self.tiled_data}!")
-
-        # Check and set the results path
-        if self.base_dir == Path(""):
-            self.__dict__['base_dir'] = self.tiled_data.parent if self.start_from_tiled_data else self.source_cloud.parent
-
-        if self.tiled_data is None:
-            self.__dict__['tiled_data'] = self.base_dir / "tiled_data"
-
-        # Prepare the logger
-        logger = logging.getLogger()
-        logger.setLevel(logging.DEBUG if self.verbose else logging.INFO)
-        coloredlogs.install(level='INFO' if self.verbose else 'VERBOSE', logger=logger)
-
-        for handler in logger.handlers:
-            handler.setFormatter(
-                logging.Formatter('%(asctime)s [%(levelname)s] %(name)s - %(message)s')
-            )
-
-        return self
-
-    def __repr__(self):
-        return '\n'.join([f'{field}: {getattr(self, field)}' for field in self.__dataclass_fields__])
-
-    @classmethod
-    def load_from_json(cls, file_path: str|Path):
-        data = json.load(open(file_path, 'r'))
-        return cls(**data)
-
-    def save_to_json(self, file_path: str|Path):
-        with open(file_path, 'w') as f:
-            data = json.loads(self.model_dump_json())
-            json.dump(data, f, indent=4)
-
-    @staticmethod
-    def _custom_dir(root_dir: Path, name: str) -> Path:
-        folder = root_dir / name
-        folder.mkdir(parents=True, exist_ok=True)
-        return folder
-
-    @computed_field
-    @property
-    def interim_dir(self) -> Path:
-        return self._custom_dir(self.base_dir, "interim")
-
-    @computed_field
-    @property
-    def result_dir(self) -> Path:
-        results_dir = self._custom_dir(self.base_dir, "results")
-        if self.refine_results:
-            return self._custom_dir(results_dir, "refined")
-        return results_dir
-
-    @computed_field
-    @property
-    def supervoxel_dir(self) -> Path|None:
-        if self.save_interim:
-            return self._custom_dir(self.interim_dir, "supervoxels")
-        return None
-
-    @computed_field
-    @property
-    def features_dir(self) -> Path|None:
-        if self.save_interim:
-            return self._custom_dir(self.interim_dir, "features")
-        return None
-
-    @computed_field
-    @property
-    def correspondences_dir(self) -> Path|None:
-        if self.save_interim:
-            return self._custom_dir(self.interim_dir, "correspondences")
-        return None
-
-    @computed_field
-    @property
-    def output_tiles_dir(self) -> Path:
-        return self._custom_dir(self.result_dir, "tiles")
 
 
 class PointCloudTile:
@@ -211,7 +59,7 @@ class PointCloudTile:
                  tile_id: str,
                  feature_extractor,
                  filtering_network,
-                 args: F2S3RunSettings):
+                 args: F2S3Config):
         """
         Class constructor:
 
@@ -362,6 +210,7 @@ class PointCloudTile:
         efC = self.args.correspondences.efC
         efS = self.args.correspondences.efS
         space = self.args.correspondences.space
+        dimensions = self.args.correspondences.dimensions
 
         # Set the number of CPU threads
         num_threads = self.args.correspondences.num_threads
@@ -371,7 +220,7 @@ class PointCloudTile:
         start_time = time.time()
 
         # Intitialize the library, specify the space, the type of the vector and add data points
-        p = hnswlib.Index(space=space, dim=64)  # possible options are l2, cosine or ip
+        p = hnswlib.Index(space=space, dim=dimensions)  # possible options are l2, cosine or ip
         p.init_index(max_elements=self.local_features_t.shape[0], ef_construction=efC, M=M)
         p.set_ef(efS)
         p.set_num_threads(num_threads)
@@ -456,11 +305,31 @@ class PointCloudTile:
             fields.create_field(f'deformation_n{c}', filtered_results[:, i])    # Vector from src to trg
 
         fields.create_field('magnitude', np.linalg.norm(displacement_vector, axis=1))
-
         fields.create_field('supervoxel_ids', segment_ids[inlier_idx])
 
         logging.debug(f'{filtered_results.shape[0]} points out of {save_coords.shape[0]} were classified as inlier')
 
+        # Compute a max displacement filter
+        self.apply_max_displacement_filter(tile_pcd, fields)
+
+        # If filtered by magnitude is selected also filter very large motion inside a tile
+        self.apply_median_magnitude_filter(fields)
+
+        # If selected combine the inliers estimated by our method with the C2C estimates for the outliers
+        self.fill_gaps_w_c2c(tile_pcd,
+                             save_coords,
+                             inlier_idx,
+                             filtered_magnitudes,
+                             fields)
+
+        logging.info(f'Outlier detection step completed in {time.time() - start_time:.2f} s')
+
+        if self.args.save_tiles:
+            ply.PlyHandler.save(tile_pcd, self.args.output_tiles_dir / f"displacement_tile_{self.tile_id}.ply")
+
+        return tile_pcd
+
+    def apply_max_displacement_filter(self, tile_pcd: PointCloudData, fields: ScalarFieldManager):
         # If maximum magnitude parameter is set, filter all points with larger magnitude estimates
         if self.args.max_disp_magnitude > 0:
             max_magnitude_idx = fields['magnitude'] < self.args.max_disp_magnitude
@@ -469,7 +338,7 @@ class PointCloudTile:
             logging.debug(f'Filtered {np.sum(~max_magnitude_idx)} points with a magnitude larger than {self.args.max_disp_magnitude}m')
             logging.debug(f'{len(tile_pcd) - np.sum(~max_magnitude_idx)} points remaining')
 
-        # If filtered by magnitude is selected also filter very large motion inside a tile
+    def apply_median_magnitude_filter(self, fields: ScalarFieldManager):
         if self.args.filter_median_magnitude:
             logging.debug('Filtering the displacement vectors based on the mean magnitude of the displacement')
 
@@ -483,8 +352,15 @@ class PointCloudTile:
                 ScalarFieldBoolean(mag_inlier_sf, name='median_magnitude_inliers')
             )
 
-        # If selected combine the inliers estimated by our method with the C2C estimates for the outliers
-        if self.args.fill_gaps_c2c and (self.args.filter_median_magnitude or self.args.max_disp_magnitude > 0):
+    def fill_gaps_w_c2c(self,
+                        tile_pcd: PointCloudData,
+                        save_coords: np.ndarray,
+                        inlier_idx: np.ndarray,
+                        filtered_magnitudes: np.ndarray,
+                        fields: ScalarFieldManager):
+        if (self.args.fill_gaps_c2c
+                and (self.args.filter_median_magnitude
+                     or self.args.max_disp_magnitude > 0)):
             filter_index = np.ones(len(tile_pcd), dtype=np.bool_)
 
             if self.args.filter_median_magnitude:
@@ -498,13 +374,6 @@ class PointCloudTile:
             ).reshape(-1)[inlier_idx]
             c2c_displacements[filter_index] = filtered_magnitudes[filter_index]
             fields.create_field(f'c2c_filled_gaps', c2c_displacements)
-
-        logging.info(f'Outlier detection step completed in {time.time() - start_time:.2f} s')
-
-        if self.args.save_tiles:
-            ply.PlyHandler.save(tile_pcd, self.args.output_tiles_dir / f"displacement_tile_{self.tile_id}.ply")
-
-        return tile_pcd
 
     def _compute_resolution(self):
         """
@@ -547,7 +416,7 @@ class F2S3:
     OUTLIER_MODEL_WEIGHTS = 'model_best.pt'
 
     # TODO implement unpacking method
-    def __init__(self, args: F2S3RunSettings):
+    def __init__(self, args: F2S3Config):
         self.args = args
         self.feature_descriptor = PointNetFeature()
         self.filtering_network = FilteringNetwork()
