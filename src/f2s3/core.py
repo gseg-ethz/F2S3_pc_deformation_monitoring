@@ -416,8 +416,8 @@ class F2S3:
     OUTLIER_MODEL_WEIGHTS = 'model_best.pt'
 
     # TODO implement unpacking method
-    def __init__(self, args: F2S3Config):
-        self.args = args
+    def __init__(self, config: F2S3Config):
+        self.cfg = config
         self.feature_descriptor = PointNetFeature()
         self.filtering_network = FilteringNetwork()
 
@@ -455,21 +455,21 @@ class F2S3:
         return self.feature_based_deformation_analysis()
 
     def compare_files(self, source: Path, target: Path) -> PointCloudData:
-        self.args.source_cloud = source
-        self.args.target_cloud = target
+        self.cfg.source = source
+        self.cfg.target = target
 
         return self.run()
 
     def run(self):
-        self.src_ply_path = self.create_ply_file_copy(self.args.source_cloud)
-        self.trg_ply_path = self.create_ply_file_copy(self.args.target_cloud)
+        self.src_ply_path = self.create_ply_file_copy(self.cfg.source)
+        self.trg_ply_path = self.create_ply_file_copy(self.cfg.target)
         gc.collect()
 
         return self.feature_based_deformation_analysis()
 
     def create_input_pcd_tiles(self):
-        if not self.args.start_from_tiled_data:
-            self.args.tiled_data.mkdir(parents=True, exist_ok=True)
+        if not self.cfg.start_from_tiled_data:
+            self.cfg.tiled_data.mkdir(parents=True, exist_ok=True)
             # Resave point clouds with PCL (this makes subsequent steps much faster)
             logging.info('Starting the resave and tiling of the original point clouds.')
             # pc_tiling.resave_point_cloud(args.source_cloud,
@@ -479,30 +479,30 @@ class F2S3:
             # Tile the point cloud into smaller tiles that can be processed on a standalone computer
             pc_tiling.tile_point_clouds(str(self.src_ply_path),
                                         str(self.trg_ply_path),
-                                        str(self.args.tiled_data),
-                                        self.args.max_points_per_tile,
-                                        self.args.min_points_per_tile,
-                                        bool(self.args.voxel_grid_size),
-                                        self.args.voxel_grid_size,
-                                        self.args.overlap_tiles,
+                                        str(self.cfg.tiled_data),
+                                        self.cfg.max_points_per_tile,
+                                        self.cfg.min_points_per_tile,
+                                        bool(self.cfg.voxel_grid_size),
+                                        self.cfg.voxel_grid_size,
+                                        self.cfg.overlap_tiles,
                                         -1,
-                                        self.args.verbose)
+                                        self.cfg.verbose)
 
     def feature_based_deformation_analysis(self, config_name: str = "config") -> PointCloudData|None:
         """
         Main function of this scripts. Starts by tiling the point clouds and then loops over the individual tiles and performs the deformation analysis.
         """
         with torch.no_grad():
-            self.args.base_dir.mkdir(parents=True, exist_ok=True)
-            self.args.save_to_json(self.args.base_dir / f"{config_name}.json")
+            self.cfg.base_dir.mkdir(parents=True, exist_ok=True)
+            self.cfg.save_to_json(self.cfg.base_dir / f"{config_name}.json")
             start_time_whole_analysis = time.time()
 
             # Step 0 - Tile data to enable GPU processing
             self.create_input_pcd_tiles()
-            tile_list = sorted(list(self.args.tiled_data.glob("source_tile_*")))
+            tile_list = sorted(list(self.cfg.tiled_data.glob("source_tile_*")))
 
             # Loop over the tiles and perform the deformation analysis
-            logging.info(f'Starting deformation analysis on tiles found at {self.args.tiled_data}.')
+            logging.info(f'Starting deformation analysis on tiles found at {self.cfg.tiled_data}.')
             logging.debug(f'{len(tile_list)} tiles in the first epoch. Tiles with less than 5000 points will be removed.')
 
             pcd_tiles: list[PointCloudData] = []
@@ -514,11 +514,11 @@ class F2S3:
                 logging.info(f'Processing tile {idx + 1}/{len(tile_list)}')
 
                 tile_name = tile_s.stem.split("_")[-1]
-                tile_t = self.args.tiled_data / f"target_tile_{tile_name}.ply"
+                tile_t = self.cfg.tiled_data / f"target_tile_{tile_name}.ply"
 
                 if tile_t.exists():
                     # Step 1 - Get point cloud tile data
-                    deformation_data = PointCloudTile(tile_s, tile_t, tile_name, self.feature_descriptor, self.filtering_network, self.args)
+                    deformation_data = PointCloudTile(tile_s, tile_t, tile_name, self.feature_descriptor, self.filtering_network, self.cfg)
 
                     start_time = time.time()
 
@@ -559,7 +559,7 @@ class F2S3:
         merged_pcd = PointCloudData.merge(*pcds)
         merged_pcd.scalar_fields.create_field("tile_idx", tile_indexes)
 
-        pcd_source = load_file(self.args.source_cloud)
+        pcd_source = load_file(self.cfg.source)
         indices = get_original_point_indexes(pcd_source, merged_pcd)
 
         for name, value in pcd_source.scalar_fields.items():
@@ -572,7 +572,7 @@ class F2S3:
             else:
                 merged_pcd.scalar_fields.create_field(name, value.arr[indices])
 
-        ply.PlyHandler.save(merged_pcd, self.args.result_dir / "deformation_result.ply")
+        ply.PlyHandler.save(merged_pcd, self.cfg.result_dir / "deformation_result.ply")
 
         return merged_pcd
 

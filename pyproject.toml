@@ -39,15 +39,15 @@ dependencies = [
     "coloredlogs",
     "hnswlib",
     "scikit-learn",
-    "pc_tiling", # @ https://example.net/archives/package-b.whl
-    "supervoxel",
+    "pc_tiling @ git+https://github.com/gseg-ethz/pc_tiling.git@v0.1.2",
+    "supervoxel @ git+https://github.com/gseg-ethz/supervoxel.git@v0.1.2",
 ]
 
 [tool.setuptools]
-packages = ["f2s3"]
+packages = { find = { where = ["src"] } }
+package-dir = { "" = "src" }
+include-package-data = true
 
-[tool.setuptools.package-dir]
-f2s3 = "src/f2s3"
 
 [tool.setuptools.package-data]
 f2s3 = [
@@ -80,4 +80,4 @@ Changelog = "https://github.com/me/spam/blob/master/CHANGELOG.md"
 #
 
 [project.scripts]
-f2s3 = "f2s3.cli:main"
+f2s3_cli = "f2s3.cli:main"

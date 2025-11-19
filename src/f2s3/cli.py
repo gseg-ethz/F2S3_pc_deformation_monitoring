@@ -126,27 +126,22 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
-    # cfg = F2S3RunSettings(
-    #     results_dir=Path("/home/jonal/projects/F2S3/data/pchandler_base"),
-    #     source_cloud=Path("/home/jonal/projects/F2S3/data/Mattertal/2019_Ground_aligned_clipped.laz"),
-    #     target_cloud=Path("/home/jonal/projects/F2S3/data/Mattertal/2021_Ground_aligned_clipped.laz"),
-    #     start_from_tiled_data=False
-    # )
-    # cfg.refine_results = True
-    # cfg.save_interim = True
-    # cfg.save_tiles = True
-    # cfg.filter_median_magnitude = True
-    # cfg.max_disp_magnitude = 1.0
-    # cfg.fill_gaps_c2c = True
-    # cfg.verbose = True
-    #
-    # algorithm = F2S3(cfg)
-    # src_pcd = load_file(cfg.source_cloud)
-    # target_pcd = load_file(cfg.target_cloud)
-    #
-    # try:
-    #     algorithm.compare_pcds(src_pcd, target_pcd)
-    # except Exception as e:
-    #     print(e.with_traceback())
+    # main()
+    cfg = F2S3Config(
+        results_dir=Path("/home/jonal/projects/F2S3/data/pchandler_base"),
+        source=Path("/home/jonal/projects/F2S3/data/Mattertal/2019_Ground_aligned_clipped.laz"),
+        target=Path("/home/jonal/projects/F2S3/data/Mattertal/2021_Ground_aligned_clipped.laz"),
+        start_from_tiled_data=False
+    )
+    cfg.refine_results = True
+    cfg.save_interim = True
+    cfg.save_tiles = True
+    cfg.filter_median_magnitude = True
+    cfg.max_disp_magnitude = 1.0
+    cfg.fill_gaps_c2c = True
+    cfg.verbose = True
+
+    algorithm = F2S3(cfg)
+    algorithm.run()
+
 

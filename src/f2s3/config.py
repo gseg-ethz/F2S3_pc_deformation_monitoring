@@ -24,8 +24,8 @@ class F2S3Config(BaseModel):
     model_config = ConfigDict(validate_assignment=True)
 
     # Point cloud files - Can only be None when a tiled_data path is provided
-    source_cloud: Optional[FilePath] = None
-    target_cloud: Optional[FilePath] = None
+    source: Optional[FilePath] = None
+    target: Optional[FilePath] = None
 
     # Base folder where everything will be saved
     base_dir: DirectoryPath | NewPath = Field(alias='results_dir')
@@ -68,18 +68,18 @@ class F2S3Config(BaseModel):
     @model_validator(mode='after')
     def check_file_paths(self):
         if not self.start_from_tiled_data:
-            if self.source_cloud is None:
-                raise FileNotFoundError(f"Source cloud could not be found at {self.source_cloud}!")
+            if self.source is None:
+                raise FileNotFoundError(f"Source cloud could not be found at {self.source}!")
 
-            if self.target_cloud is None:
-                raise FileNotFoundError(f"Target cloud could not be found at {self.target_cloud}!")
+            if self.target is None:
+                raise FileNotFoundError(f"Target cloud could not be found at {self.target}!")
         else:
             if self.tiled_data is None:
                 raise NotADirectoryError(f"Tiled data path incorrect: {self.tiled_data}!")
 
         # Check and set the results path
         if self.base_dir == Path(""):
-            self.__dict__['base_dir'] = self.tiled_data.parent if self.start_from_tiled_data else self.source_cloud.parent
+            self.__dict__['base_dir'] = self.tiled_data.parent if self.start_from_tiled_data else self.source.parent
 
         if self.tiled_data is None:
             self.__dict__['tiled_data'] = self.base_dir / "tiled_data"
