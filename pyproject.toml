@@ -80,4 +80,4 @@ Changelog = "https://github.com/me/spam/blob/master/CHANGELOG.md"
 #
 
 [project.scripts]
-f2s3_cli = "f2s3.cli:main"
+f2s3_cli = "f2s3:process"

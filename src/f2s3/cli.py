@@ -7,7 +7,7 @@ from f2s3.core import F2S3
 from f2s3.config import F2S3Config
 
 
-def main():
+def process():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         '-s', '--source_cloud', type=Path,
@@ -126,22 +126,4 @@ def main():
 
 
 if __name__ == '__main__':
-    # main()
-    cfg = F2S3Config(
-        results_dir=Path("/home/jonal/projects/F2S3/data/pchandler_base"),
-        source=Path("/home/jonal/projects/F2S3/data/Mattertal/2019_Ground_aligned_clipped.laz"),
-        target=Path("/home/jonal/projects/F2S3/data/Mattertal/2021_Ground_aligned_clipped.laz"),
-        start_from_tiled_data=False
-    )
-    cfg.refine_results = True
-    cfg.save_interim = True
-    cfg.save_tiles = True
-    cfg.filter_median_magnitude = True
-    cfg.max_disp_magnitude = 1.0
-    cfg.fill_gaps_c2c = True
-    cfg.verbose = True
-
-    algorithm = F2S3(cfg)
-    algorithm.run()
-
-
+    process()

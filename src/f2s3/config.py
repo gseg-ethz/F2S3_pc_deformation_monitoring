@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, FilePath, DirectoryPath, NewPath, Fi
     model_validator, computed_field
 
 
-class CorrespondenceSearchConfig(BaseModel):
+class CorrespondenceConfig(BaseModel):
     model_config = ConfigDict(validate_assignment=True)
     M: int = 12
     efC: int = 300
@@ -45,7 +45,7 @@ class F2S3Config(BaseModel):
     n_normals: PositiveInt = 30 # Numbers of points used to compute normal vectors in the supervoxels
 
     # Correspondence search parameters
-    correspondences: CorrespondenceSearchConfig = Field(default_factory=CorrespondenceSearchConfig)
+    correspondence_cfg: CorrespondenceConfig = Field(default_factory=CorrespondenceConfig)
 
     # Post processing parameters
     refine_results: bool = False
@@ -82,7 +82,7 @@ class F2S3Config(BaseModel):
             self.__dict__['base_dir'] = self.tiled_data.parent if self.start_from_tiled_data else self.source.parent
 
         if self.tiled_data is None:
-            self.__dict__['tiled_data'] = self.base_dir / "tiled_data"
+            self.__dict__['tiled_data'] = self.base_dir / "00_Preprocessing" / "tiles"
 
         # Prepare the logger
         logger = logging.getLogger()
@@ -118,38 +118,38 @@ class F2S3Config(BaseModel):
     @computed_field
     @property
     def interim_dir(self) -> Path:
-        return self._custom_dir(self.base_dir, "interim")
+        return self._custom_dir(self.base_dir, "01_Intermediary")
 
     @computed_field
     @property
     def result_dir(self) -> Path:
-        results_dir = self._custom_dir(self.base_dir, "results")
+        results_dir = self._custom_dir(self.base_dir, "02_Results")
         if self.refine_results:
-            return self._custom_dir(results_dir, "refined")
+            return self._custom_dir(results_dir, "01_refined")
         return results_dir
 
     @computed_field
     @property
     def supervoxel_dir(self) -> Path|None:
         if self.save_interim:
-            return self._custom_dir(self.interim_dir, "supervoxels")
+            return self._custom_dir(self.interim_dir, "02_supervoxels")
         return None
 
     @computed_field
     @property
     def features_dir(self) -> Path|None:
         if self.save_interim:
-            return self._custom_dir(self.interim_dir, "features")
+            return self._custom_dir(self.interim_dir, "01_features")
         return None
 
     @computed_field
     @property
     def correspondences_dir(self) -> Path|None:
         if self.save_interim:
-            return self._custom_dir(self.interim_dir, "correspondences")
+            return self._custom_dir(self.interim_dir, "03_correspondences")
         return None
 
     @computed_field
     @property
     def output_tiles_dir(self) -> Path:
-        return self._custom_dir(self.result_dir, "tiles")
+        return self._custom_dir(self.result_dir, "01_tiles")
