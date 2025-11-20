@@ -1,13 +1,14 @@
 import json
 import logging
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Literal, Optional, Any
+from datetime import datetime
 
 import coloredlogs
 import numpy as np
 
 from pydantic import BaseModel, ConfigDict, FilePath, DirectoryPath, NewPath, Field, PositiveInt, NonNegativeFloat, \
-    model_validator, computed_field
+    model_validator, computed_field, field_validator
 
 
 class CorrespondenceConfig(BaseModel):
@@ -28,7 +29,7 @@ class F2S3Config(BaseModel):
     target: Optional[FilePath] = None
 
     # Base folder where everything will be saved
-    base_dir: DirectoryPath | NewPath = Field(alias='results_dir')
+    base_dir: DirectoryPath | NewPath = Field(alias='results_dir', default=Path(f"f2s3_results_{datetime.now().strftime("%Y_%m_%d_%H_%M_%S")}"))
 
     # Tiling parameters
     start_from_tiled_data: bool = False
@@ -65,6 +66,13 @@ class F2S3Config(BaseModel):
     def supervoxel_radius(self, median_resolution):
         return np.max([ self.feature_radius(median_resolution), self.voxel_grid_size ])
 
+    @field_validator('base_dir', mode='before')
+    @classmethod
+    def check_base_dir(cls, v: Any):
+        v = Path(v)
+        v.mkdir(parents=True, exist_ok=True)
+        return Path(v).resolve()
+
     @model_validator(mode='after')
     def check_file_paths(self):
         if not self.start_from_tiled_data:
@@ -77,12 +85,9 @@ class F2S3Config(BaseModel):
             if self.tiled_data is None:
                 raise NotADirectoryError(f"Tiled data path incorrect: {self.tiled_data}!")
 
-        # Check and set the results path
-        if self.base_dir == Path(""):
-            self.__dict__['base_dir'] = self.tiled_data.parent if self.start_from_tiled_data else self.source.parent
-
         if self.tiled_data is None:
             self.__dict__['tiled_data'] = self.base_dir / "00_Preprocessing" / "tiles"
+            self.__dict__['tiled_data'].mkdir(parents=True, exist_ok=True)
 
         # Prepare the logger
         logger = logging.getLogger()

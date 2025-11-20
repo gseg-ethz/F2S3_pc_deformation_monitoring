@@ -27,6 +27,7 @@ import time
 import hnswlib
 import gc
 from pathlib import Path
+from copy import deepcopy
 
 from tqdm import tqdm
 from sklearn.neighbors import NearestNeighbors
@@ -39,11 +40,11 @@ from pchandler.scalar_fields.scalar_fields import ScalarFieldBoolean
 from pchandler.data_io import ply, load_file
 from pchandler.constants import COMMON_FIELD_BASES
 
-from .config import F2S3Config
-from .descriptor_model import PointNetFeature
-from .filtering_model import FilteringNetwork
-from .data import FeatureExtractionDataset
-from .utils import transform_point_cloud, compute_c2c, get_original_point_indexes
+from f2s3.config import F2S3Config
+from f2s3.descriptor_model import PointNetFeature
+from f2s3.filtering_model import FilteringNetwork
+from f2s3.data import FeatureExtractionDataset
+from f2s3.utils import transform_point_cloud, compute_c2c, get_original_point_indexes
 
 from pc_tiling import pc_tiling
 from supervoxel import supervoxel
@@ -206,14 +207,14 @@ class PointCloudTile:
 
         # Paramters defining how close to the exact NN search the approximate search is. Should only be changed if there is a very good reason!
         # Increasing this values "sharpens" the NN search but also results in the longer processing time. Current values result in above 99% NN recall.
-        M = self.args.correspondences.M
-        efC = self.args.correspondences.efC
-        efS = self.args.correspondences.efS
-        space = self.args.correspondences.space
-        dimensions = self.args.correspondences.dimensions
+        M = self.args.correspondence_cfg.M
+        efC = self.args.correspondence_cfg.efC
+        efS = self.args.correspondence_cfg.efS
+        space = self.args.correspondence_cfg.space
+        dimensions = self.args.correspondence_cfg.dimensions
 
         # Set the number of CPU threads
-        num_threads = self.args.correspondences.num_threads
+        num_threads = self.args.correspondence_cfg.num_threads
 
         logging.debug('Starting the computation of the correspondences in feature space.')
 
@@ -227,7 +228,7 @@ class PointCloudTile:
         p.add_items(self.local_features_t.cpu().numpy())
 
         # Query the elements for themselves and measure recall:
-        labels, distances = p.knn_query(self.local_features_s.cpu().numpy(), k=1)
+        labels, distances = p.knn_query(self.local_features_s.cpu().numpy(), k=1, filter=None)
 
         # Save the correspondences for future steps
         self.correspondences = np.concatenate((
@@ -415,9 +416,8 @@ class F2S3:
     OUTLIER_MODEL_NAME = 'f2s3.pretrained_models.outlier_filtering'
     OUTLIER_MODEL_WEIGHTS = 'model_best.pt'
 
-    # TODO implement unpacking method
-    def __init__(self, config: F2S3Config):
-        self.cfg = config
+    def __init__(self, config: F2S3Config, **kwargs):
+        self.cfg = F2S3Config(**(config.model_dump() | kwargs))
         self.feature_descriptor = PointNetFeature()
         self.filtering_network = FilteringNetwork()
 
@@ -563,7 +563,7 @@ class F2S3:
         indices = get_original_point_indexes(pcd_source, merged_pcd)
 
         for name, value in pcd_source.scalar_fields.items():
-            # TODO check the reason because of duplicates - overlap regions?
+            # There are cases where a couple of points are duplicated, overlap regions?
             if name in COMMON_FIELD_BASES:
                 if value.ndim == 2:
                     setattr(merged_pcd, name, value.arr[indices, :])
@@ -572,8 +572,11 @@ class F2S3:
             else:
                 merged_pcd.scalar_fields.create_field(name, value.arr[indices])
 
+        # Remove optimal shift for the saving process then adds it again
+        shift = deepcopy(merged_pcd.numerical_optimization_shift)
+        merged_pcd.numerical_optimization_shift = None
         ply.PlyHandler.save(merged_pcd, self.cfg.result_dir / "deformation_result.ply")
-
+        merged_pcd.numerical_optimization_shift = shift
         return merged_pcd
 
     def create_ply_file_copy(self, pcd_path: Path) -> Path:
