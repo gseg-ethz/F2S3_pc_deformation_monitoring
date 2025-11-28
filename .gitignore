@@ -717,3 +717,9 @@ FodyWeavers.xsd
 
 # Built Visual Studio Code Extensions
 *.vsix
+/.idea/.gitignore
+/.idea/F2S3.iml
+/.idea/misc.xml
+/.idea/modules.xml
+/.idea/inspectionProfiles/profiles_settings.xml
+/.idea/vcs.xml
