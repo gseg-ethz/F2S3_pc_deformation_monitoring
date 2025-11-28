@@ -118,6 +118,7 @@ def process():
 
     args = parser.parse_args()
 
+    # TODO update this list to reflect the config file
     run_settings = F2S3Config(**vars(args))
 
     with torch.no_grad():

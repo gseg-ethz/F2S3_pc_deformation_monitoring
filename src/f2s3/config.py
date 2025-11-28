@@ -29,7 +29,7 @@ class F2S3Config(BaseModel):
     target: Optional[FilePath] = None
 
     # Base folder where everything will be saved
-    base_dir: DirectoryPath | NewPath = Field(alias='results_dir', default=Path(f"f2s3_results_{datetime.now().strftime("%Y_%m_%d_%H_%M_%S")}"))
+    output_folder: DirectoryPath | NewPath = Field(alias='results_dir', default=Path(f"f2s3_results_{datetime.now().strftime("%Y_%m_%d_%H_%M_%S")}"))
 
     # Tiling parameters
     start_from_tiled_data: bool = False
@@ -66,12 +66,13 @@ class F2S3Config(BaseModel):
     def supervoxel_radius(self, median_resolution):
         return np.max([ self.feature_radius(median_resolution), self.voxel_grid_size ])
 
-    @field_validator('base_dir', mode='before')
+    @field_validator('output_folder', mode='before')
     @classmethod
-    def check_base_dir(cls, v: Any):
+    def check_output_folder(cls, v: Any):
         v = Path(v)
         v.mkdir(parents=True, exist_ok=True)
         return Path(v).resolve()
+
 
     @model_validator(mode='after')
     def check_file_paths(self):
@@ -86,7 +87,7 @@ class F2S3Config(BaseModel):
                 raise NotADirectoryError(f"Tiled data path incorrect: {self.tiled_data}!")
 
         if self.tiled_data is None:
-            self.__dict__['tiled_data'] = self.base_dir / "00_Preprocessing" / "tiles"
+            self.__dict__['tiled_data'] = self.output_folder / "00_Preprocessing" / "tiles"
             self.__dict__['tiled_data'].mkdir(parents=True, exist_ok=True)
 
         # Prepare the logger
@@ -123,12 +124,12 @@ class F2S3Config(BaseModel):
     @computed_field
     @property
     def interim_dir(self) -> Path:
-        return self._custom_dir(self.base_dir, "01_Intermediary")
+        return self._custom_dir(self.output_folder, "01_Intermediary")
 
     @computed_field
     @property
     def result_dir(self) -> Path:
-        results_dir = self._custom_dir(self.base_dir, "02_Results")
+        results_dir = self._custom_dir(self.output_folder, "02_Results")
         if self.refine_results:
             return self._custom_dir(results_dir, "01_refined")
         return results_dir

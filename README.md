@@ -2,12 +2,14 @@ This repository contains the source code and instructions of F2S3, an approach f
 
 ## F2S3: Robustified determination of 3D displacement vector fields using deep learning
 
-**|[PDF](https://www.degruyter.com/view/journals/jag/14/2/article-p177.xml)  | [Group Page](https://gseg.igp.ethz.ch/)|**
+**| [PDF](https://www.degruyter.com/view/journals/jag/14/2/article-p177.xml)  | [Group Page](https://gseg.igp.ethz.ch/) |**
 
-**| [Zan Gojcic](https://zgojcic.github.io/) |
-[Caifa Zhou](https://caifazhou.github.io/) |
-[Lorenz Schmid](https://gseg.igp.ethz.ch/people/scientific-assistance/lorenz-schmid.html) |
- [Andreas Wieser](https://gseg.igp.ethz.ch/people/group-head/prof-dr--andreas-wieser.html) |**
+**| 
+[Zan Gojcic](https://zgojcic.github.io/) | 
+[Caifa Zhou](https://caifazhou.github.io/) | 
+[Lorenz Schmid](https://gseg.igp.ethz.ch/people/scientific-assistance/lorenz-schmid.html) | 
+[Andreas Wieser](https://gseg.igp.ethz.ch/people/group-head/prof-dr--andreas-wieser.html) 
+|**
 
 Feature to Feature Supervoxel-based Spatial Smoothing (F2S3) is a deep learning based deformation analysis method for point cloud data. It computes a displacements vector field between two epochs, based on the establishing the corresponding points in the feature space. The initial noisy set of putative correspondences is filtered using an outlier detection network, which operates inside individual supervoxels and hence satisfies the local consistency constraint without crossing the discontinuities of the vector field. F2S3 achieves a very high performance in the point clouds with sufficient local structure and thus represents a complementary method to the traditional deformation analysis tools such as C2C, M2C, and M3C2.
 
@@ -21,23 +23,37 @@ The provided code is partially implemented in C++ (tiling and supervoxel segment
 
 ## Running F2S3
 
-**Basic function call**
+**For calling from the command line:**
 
 ```shell
-python f2s3_deformation_analysis.py --source_cloud ./data/_sample_folder/raw_data/epoch1.ply --target_cloud ./data/_sample_folder/raw_data/epoch2.ply
+f2s3_cli --source_cloud ./data/_sample_folder/raw_data/epoch1.ply --target_cloud ./data/_sample_folder/raw_data/epoch2.ply
+```
+
+And from within a python script:
+```python
+from f2s3 import F2S3, F2S3Config
+
+cfg = F2S3Config(
+    source=r"PtCloud1.laz",
+    target=r"PtCloud2.laz",
+    start_from_tiled_data=False
+)
+
+algorithm = F2S3(cfg)
+algorithm.run()
 ```
 
 **More settings**
-```shell
-python f2s3_deformation_analysis.py -h
-```
+
+See the TCEConfig class for the full options set.
+
 
 ```shell 
 Note: The code in this repository was developed for the ubuntu operating system and was tested on the following configurations:
-- Ubuntu 16.04, 18.04, 20.04
+- Ubuntu 24.04
 - Python 3.6, 3.8
-- CUDA 10.1, 10.2, 11.3
-- Pytorch 1.7, 1.10
+- CUDA 12.6
+- Pytorch 2.8
 ```
 
 ## Citation

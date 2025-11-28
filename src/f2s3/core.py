@@ -493,8 +493,8 @@ class F2S3:
         Main function of this scripts. Starts by tiling the point clouds and then loops over the individual tiles and performs the deformation analysis.
         """
         with torch.no_grad():
-            self.cfg.base_dir.mkdir(parents=True, exist_ok=True)
-            self.cfg.save_to_json(self.cfg.base_dir / f"{config_name}.json")
+            self.cfg.output_folder.mkdir(parents=True, exist_ok=True)
+            self.cfg.save_to_json(self.cfg.output_folder / f"{config_name}.json")
             start_time_whole_analysis = time.time()
 
             # Step 0 - Tile data to enable GPU processing

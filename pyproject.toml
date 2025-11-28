@@ -41,6 +41,7 @@ dependencies = [
     "scikit-learn",
     "pc_tiling @ git+https://github.com/gseg-ethz/pc_tiling.git@v0.1.2",
     "supervoxel @ git+https://github.com/gseg-ethz/supervoxel.git@v0.1.2",
+    "pchandler[cuda12] @ git+ssh://git@github.com/gseg-ethz/PCHandler.git@feature/v2/license",
 ]
 
 [tool.setuptools]
