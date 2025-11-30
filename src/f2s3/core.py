@@ -426,8 +426,6 @@ class F2S3:
 
         self.temp_dir = TemporaryDirectory()
 
-        self.raw_path = None
-
         self.src_ply_path = None
         self.trg_ply_path = None
 
@@ -457,6 +455,17 @@ class F2S3:
     def compare_files(self, source: Path, target: Path) -> PointCloudData:
         self.cfg.source = source
         self.cfg.target = target
+
+
+        if not self.cfg.start_from_tiled_data:
+            if self.cfg.source is None:
+                raise FileNotFoundError(f"Source cloud could not be found at {self.cfg.source}!")
+
+            if self.cfg.target is None:
+                raise FileNotFoundError(f"Target cloud could not be found at {self.target}!")
+        else:
+            if self.cfg.tiled_data is None:
+                raise NotADirectoryError(f"Tiled data path incorrect: {self.cfg.tiled_data}!")
 
         return self.run()
 

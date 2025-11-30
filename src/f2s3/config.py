@@ -76,16 +76,6 @@ class F2S3Config(BaseModel):
 
     @model_validator(mode='after')
     def check_file_paths(self):
-        if not self.start_from_tiled_data:
-            if self.source is None:
-                raise FileNotFoundError(f"Source cloud could not be found at {self.source}!")
-
-            if self.target is None:
-                raise FileNotFoundError(f"Target cloud could not be found at {self.target}!")
-        else:
-            if self.tiled_data is None:
-                raise NotADirectoryError(f"Tiled data path incorrect: {self.tiled_data}!")
-
         if self.tiled_data is None:
             self.__dict__['tiled_data'] = self.output_folder / "00_Preprocessing" / "tiles"
             self.__dict__['tiled_data'].mkdir(parents=True, exist_ok=True)
