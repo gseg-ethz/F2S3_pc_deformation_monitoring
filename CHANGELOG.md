@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.0.8](https://github.com/gseg-ethz/F2S3_pc_deformation_monitoring/compare/v2.0.7...v2.0.8) (2026-03-04)
+
+
+### 📚 Documentation
+
+* enhance installation guide for Ubuntu with detailed steps and troubleshooting ([2bafe6c](https://github.com/gseg-ethz/F2S3_pc_deformation_monitoring/commit/2bafe6cf13c33cc4454b815d6cbac5e47c5ebe59))
+
 ## [2.0.7](https://github.com/gseg-ethz/F2S3_pc_deformation_monitoring/compare/v2.0.6...v2.0.7) (2026-03-04)
 
 
