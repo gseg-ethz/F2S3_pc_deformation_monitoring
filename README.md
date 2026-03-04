@@ -7,17 +7,19 @@ This repository contains the source code and instructions of F2S3, an approach f
 **| [Zan Gojcic](https://zgojcic.github.io/) |
 [Caifa Zhou](https://caifazhou.github.io/) |
 [Lorenz Schmid](https://gseg.igp.ethz.ch/people/scientific-assistance/lorenz-schmid.html) |
- [Andreas Wieser](https://gseg.igp.ethz.ch/people/group-head/prof-dr--andreas-wieser.html) |**
+[Andreas Wieser](https://gseg.igp.ethz.ch/people/group-head/prof-dr--andreas-wieser.html) |**
 
 Feature to Feature Supervoxel-based Spatial Smoothing (F2S3) is a deep learning based deformation analysis method for point cloud data. It computes a displacements vector field between two epochs, based on the establishing the corresponding points in the feature space. The initial noisy set of putative correspondences is filtered using an outlier detection network, which operates inside individual supervoxels and hence satisfies the local consistency constraint without crossing the discontinuities of the vector field. F2S3 achieves a very high performance in the point clouds with sufficient local structure and thus represents a complementary method to the traditional deformation analysis tools such as C2C, M2C, and M3C2.
 
 ![F2S3 pipeline](docs/assets/F2S3_pipeline.PNG?raw=true)
 
-## Before getting started
+## Installation
 
-The provided code is partially implemented in C++ (tiling and supervoxel segmentation) and partially in Python using Pytorch library (feature extraction and filtering). For the C++ part we provide the python bindings, which can/need to be compiled before use. The code relies on CUDA implementation and therefore requires an NVIDIA graphic card with [CUDA support](https://developer.nvidia.com/cuda-gpus).
+F2S3 has been successfully tested on Ubuntu 20.04 LTS, 22.04 LTS, and 24.04 LTS, both as native OS and via Windows Subsystem for Linux (WSL2). The installation process involves setting up a Python environment, installing PyTorch with CUDA support, and installing necessary system dependencies for the C++ extensions.
 
-[Installation on Ubuntu 20.04 LTS](docs/installation_ubuntu2004.md)
+The provided code is partially implemented in C++ (tiling and supervoxel segmentation) and partially in Python using Pytorch library (feature extraction and filtering). The code relies on CUDA implementation and therefore requires an NVIDIA graphic card with [CUDA support](https://developer.nvidia.com/cuda-gpus).
+
+**Detailled installation instructions are available [here](docs/installation.md).**
 
 ## Running F2S3
 
@@ -29,15 +31,8 @@ f2s3 --source_cloud ./data/_sample_folder/raw_data/epoch1.ply --target_cloud ./d
 
 **More settings**
 ```shell
-f2s3 -h
+f2s3 --help
 ```
-
-> Note: The v2 code in this repository was developed for the ubuntu operating system and was tested on the following 
-> configurations:
-> - Ubuntu 22.04, 24.04
-> - Python 3.11
-> - CUDA 11.3, 12.6
-> - Pytorch 2.6
 
 ## Citation
 
