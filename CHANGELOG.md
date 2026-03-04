@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.0.7](https://github.com/gseg-ethz/F2S3_pc_deformation_monitoring/compare/v2.0.6...v2.0.7) (2026-03-04)
+
+
+### 📚 Documentation
+
+* update installation instructions and remove outdated Ubuntu 20.04 guide ([fd71f16](https://github.com/gseg-ethz/F2S3_pc_deformation_monitoring/commit/fd71f1613c23a4fde7e2ce41ee722a0d1cd2f876))
+
+
+### 🔨 Build System
+
+* adapt git_describe_command in pyproject.toml to array form ([7085cca](https://github.com/gseg-ethz/F2S3_pc_deformation_monitoring/commit/7085ccad38be9ec5d08b27c6921f6c2ef3efce51))
+* force version number to semvar ([270a706](https://github.com/gseg-ethz/F2S3_pc_deformation_monitoring/commit/270a706b58844c2a955955dd91d2a5c229d215e6))
+
 ## [2.0.6](https://github.com/gseg-ethz/F2S3_pc_deformation_monitoring/compare/v2.0.5...v2.0.6) (2025-07-09)
 
 
