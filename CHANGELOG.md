@@ -1,5 +1,23 @@
 # Changelog
 
+## [2.1.0](https://github.com/gseg-ethz/F2S3_pc_deformation_monitoring/compare/v2.0.8...v2.1.0) (2026-03-05)
+
+
+### ✨ Features
+
+* add Docker support with Dockerfile, docker-compose, and GitHub Actions workflow ([a2c6091](https://github.com/gseg-ethz/F2S3_pc_deformation_monitoring/commit/a2c609169e7a7ff459ec4a692a90e3c6d0c9380a))
+
+
+### 🧹 Miscellaneous Chores
+
+* trigger release-please ([4d66fc9](https://github.com/gseg-ethz/F2S3_pc_deformation_monitoring/commit/4d66fc9c91047bf915fdba37813dd420ecf0b92f))
+
+
+### 🤖 Continuous Integration
+
+* add push-probe GitHub Actions workflow for push triggers ([4d4c0d9](https://github.com/gseg-ethz/F2S3_pc_deformation_monitoring/commit/4d4c0d9626c8d4863e7b8a6d69c9824685fb32de))
+* remove push-probe workflow and add workflow_dispatch to release-please ([c71cbae](https://github.com/gseg-ethz/F2S3_pc_deformation_monitoring/commit/c71cbaeef724c0c9f0d6f0625d6aae4ea0f46e22))
+
 ## [2.0.8](https://github.com/gseg-ethz/F2S3_pc_deformation_monitoring/compare/v2.0.7...v2.0.8) (2026-03-04)
 
 
