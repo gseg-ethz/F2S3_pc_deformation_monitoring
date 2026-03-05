@@ -20,6 +20,7 @@ F2S3 has been successfully tested on Ubuntu 20.04 LTS, 22.04 LTS, and 24.04 LTS,
 The provided code is partially implemented in C++ (tiling and supervoxel segmentation) and partially in Python using Pytorch library (feature extraction and filtering). The code relies on CUDA implementation and therefore requires an NVIDIA graphic card with [CUDA support](https://developer.nvidia.com/cuda-gpus).
 
 **Detailled installation instructions are available [here](docs/installation.md).**
+**Development and container workflow instructions are available [here](docs/development.md).**
 
 ## Running F2S3
 
