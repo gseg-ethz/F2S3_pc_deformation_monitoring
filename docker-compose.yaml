@@ -1,0 +1,14 @@
+services:
+  f2s3:
+    image: ${F2S3_IMAGE:-ghcr.io/gseg-ethz/f2s3_pc_deformation_monitoring:local}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        TORCH_INDEX_URL: ${TORCH_INDEX_URL:-https://download.pytorch.org/whl/cu126}
+        F2S3_VERSION: ${F2S3_VERSION:-0.0.0}
+    gpus: all
+    volumes:
+      - ./data:/workspace/data
+    working_dir: /workspace
+    command: ["--help"]
